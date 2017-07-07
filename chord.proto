@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package chord;
+
+import "google/protobuf/empty.proto";
+
+/////////////////////////
+// node definition region
+service Node{
+
+    rpc OnJoin(NodeInfo) returns (google.protobuf.Empty) {}
+    rpc OnNotify(NodeInfo) returns (google.protobuf.Empty) {}
+
+
+    rpc FindSuccessor(ID) returns (NodeInfo) {}
+    rpc FindPredecessor(ID) returns (NodeInfo) {}
+    rpc ClosestPredecessorFinger(ID) returns (NodeInfo) {}
+}
+
+message ID{
+    bytes ID=1;
+}
+
+
+message NodeInfo{
+    string IP=1;
+    string Port=2;
+
+}
+// end of node region
+/////////////////////
+
+
+
