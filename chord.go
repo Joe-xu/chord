@@ -36,7 +36,7 @@ type Node struct {
 	m          int //length of ID in bit
 
 	fingers     fingerTable //fingers[0].node==successor[0]
-	successor   []*Node
+	successor   *Node
 	predecessor *Node
 }
 
@@ -44,7 +44,6 @@ type Node struct {
 func NewNode(port string) *Node {
 	n := &Node{
 		Port:       port,
-		successor:  make([]*Node, 0),
 		hashMethod: md5.New(),
 	}
 
@@ -52,6 +51,27 @@ func NewNode(port string) *Node {
 	n.m = len(n.ID) * 8
 
 	return n
+}
+
+//Info return node's info used in rpc
+func (n *Node) Info() *NodeInfo {
+	info := &NodeInfo{
+		ID:   n.ID,
+		IP:   n.IP,
+		Port: n.Port,
+		// Successor:n.successor.Info(),//
+	}
+
+	if n.successor != nil {
+		info.Successor = n.successor.Info()
+	}
+
+	return info
+}
+
+//isGreaterThan tell if n'ID greater
+func (n *Node) isGreaterThan(id []byte) bool {
+	return compareID(n.ID, id)
 }
 
 //Serve makes node listen on the port of the spec network type
@@ -104,7 +124,7 @@ func (n *Node) Join(info ...*NodeInfo) error {
 //force interface check
 // var _ NodeServer = (*Node)(nil)
 
-//OnJoin implements NodeServer interface
+//OnJoin implements NodeServer interface [rpc]
 func (n *Node) OnJoin(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
 
 	newNode := &Node{
@@ -112,7 +132,7 @@ func (n *Node) OnJoin(ctx context.Context, info *NodeInfo) (*google_protobuf.Emp
 		Port: info.Port,
 	}
 
-	n.successor = append(n.successor, newNode)
+	n.successor = newNode
 
 	n.predecessor = newNode
 
@@ -121,8 +141,84 @@ func (n *Node) OnJoin(ctx context.Context, info *NodeInfo) (*google_protobuf.Emp
 	return &google_protobuf.Empty{}, nil
 }
 
-//OnNotify implements NodeServer interface
+//OnNotify implements NodeServer interface [rpc]
 func (n *Node) OnNotify(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
 
 	return &google_protobuf.Empty{}, nil
+}
+
+//FindSuccessor implements NodeServer interface [rpc]
+func (n *Node) FindSuccessor(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
+
+	return n.findSuccessor(info)
+}
+
+// findSuccessor  [local invoke]
+func (n *Node) findSuccessor(info *NodeInfo) (*NodeInfo, error) {
+
+	node, err := n.findPredecessor(info)
+
+	return node.Successor, err
+}
+
+//FindPredecessor implements NodeServer interface [rpc]
+func (n *Node) FindPredecessor(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
+
+	return n.findPredecessor(info)
+}
+
+//findPredecessor [local invoke]
+func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
+
+	nodeTmp := n
+
+	// for info.ID > nodeTmp.ID && info.ID <= nodeTmp.successor.ID {
+	for !nodeTmp.isGreaterThan(info.ID) && nodeTmp.successor.isGreaterThan(info.ID) {
+
+		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", nodeTmp.IP, nodeTmp.Port), grpc.WithInsecure())
+		if err != nil {
+			return nil, err
+		}
+
+		cli := NewNodeClient(conn)
+		resp, err := cli.ClosestPrecedingFinger(context.Background(), &NodeInfo{
+			ID: info.ID,
+		})
+		conn.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		nodeTmp = &Node{
+			ID:   resp.ID,
+			IP:   resp.IP,
+			Port: resp.Port,
+			successor: &Node{
+				ID:   resp.Successor.ID,
+				IP:   resp.Successor.IP,
+				Port: resp.Successor.Port,
+			},
+		}
+
+	}
+
+	return nodeTmp.Info(), nil
+}
+
+//ClosestPrecedingFinger implements NodeServer interface [rpc]
+func (n *Node) ClosestPrecedingFinger(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
+
+	return n.closestPrecedingFinger(info)
+}
+
+// closestPrecedingFinger [local invoke]
+func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
+
+	for i := len(n.fingers) - 1; i >= 0; i-- {
+		if !n.fingers[i].node.isGreaterThan(info.ID) && n.fingers[i].node.isGreaterThan(info.ID) {
+			return n.fingers[i].node.Info(), nil
+		}
+	}
+
+	return n.Info(), nil
 }

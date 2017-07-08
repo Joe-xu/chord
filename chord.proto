@@ -12,19 +12,16 @@ service Node{
     rpc OnNotify(NodeInfo) returns (google.protobuf.Empty) {}
 
 
-    rpc FindSuccessor(ID) returns (NodeInfo) {}
-    rpc FindPredecessor(ID) returns (NodeInfo) {}
-    rpc ClosestPredecessorFinger(ID) returns (NodeInfo) {}
+    rpc FindSuccessor(NodeInfo) returns (NodeInfo) {}
+    rpc FindPredecessor(NodeInfo) returns (NodeInfo) {}
+    rpc ClosestPrecedingFinger(NodeInfo) returns (NodeInfo) {}
 }
-
-message ID{
-    bytes ID=1;
-}
-
 
 message NodeInfo{
-    string IP=1;
-    string Port=2;
+    bytes   ID=1;
+    string  IP=2;
+    string  Port=3;
+    NodeInfo Successor=4;
 
 }
 // end of node region
