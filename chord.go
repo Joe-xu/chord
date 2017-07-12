@@ -19,6 +19,8 @@ import (
 	"net"
 	"strings"
 
+	"math"
+
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -33,11 +35,11 @@ type Node struct {
 	ID         []byte
 	Value      interface{}
 	hashMethod hash.Hash
-	m          int //length of ID in bit
+	hashBitL   int //length of ID in bit
 
-	fingers     fingerTable //fingers[0].node==successor[0]
-	successor   *Node
-	predecessor *Node
+	fingers     fingerTable //fingers[0].node==successor
+	predecessor *NodeInfo
+	// successor   *NodeInfo
 }
 
 //NewNode init and return new node
@@ -45,10 +47,11 @@ func NewNode(port string) *Node {
 	n := &Node{
 		Port:       port,
 		hashMethod: md5.New(),
+		fingers:    make([]*finger, 1),
 	}
-
+	// n.successor = n.fingers[0].node
 	n.ID = n.hashMethod.Sum([]byte(n.IP + n.Port))
-	n.m = len(n.ID) * 8
+	n.hashBitL = len(n.ID) * 8
 
 	return n
 }
@@ -62,16 +65,11 @@ func (n *Node) Info() *NodeInfo {
 		// Successor:n.successor.Info(),//
 	}
 
-	if n.successor != nil {
-		info.Successor = n.successor.Info()
+	if n.fingers[0].node != nil {
+		info.Successor = n.fingers[0].node
 	}
 
 	return info
-}
-
-//isGreaterThan tell if n'ID greater
-func (n *Node) isGreaterThan(id []byte) bool {
-	return compareID(n.ID, id)
 }
 
 //Serve makes node listen on the port of the spec network type
@@ -97,28 +95,150 @@ func (n *Node) Serve(network string, port string) error {
 //Join let n join the network,accept arbitrary node's info as parma
 func (n *Node) Join(info ...*NodeInfo) error {
 
-	if len(info) >= 1 { //TODO:handle mutiple join
+	if len(info) >= 1 { //TODO:handle multiple join <<<<<<<<<<<<<<
 
-		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", info[0].IP, info[0].Port), grpc.WithInsecure())
+		// conn, err := grpc.Dial(fmt.Sprintf("%s:%s", info[0].IP, info[0].Port), grpc.WithInsecure())
+		// if err != nil {
+		// 	return err
+		// }
+		// defer conn.Close()
+
+		// rpcClient := NewNodeClient(conn)
+		// _, err = rpcClient.OnJoin(context.Background(), info[0])
+
+		// return err
+		err := n.initFingerTable(info[0])
+		if err != nil {
+			return nil
+		}
+		err = n.updateOthers()
+		//TODO: move keys in (predecessor,n] from successor <<<<<<
+		return err
+	}
+	// only n in the network
+	n.fingers = make([]*finger, n.hashBitL)
+	for i := range n.fingers {
+		n.fingers[i].node = n.Info()
+	}
+	n.predecessor = n.Info()
+
+	return nil
+
+}
+
+//initFingerTable init node local finger table
+func (n *Node) initFingerTable(info *NodeInfo) error {
+
+	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", info.IP, info.Port), grpc.WithInsecure())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	cli := NewNodeClient(conn)
+	n.fingers[0].node, err = cli.FindSuccessor(context.Background(), &NodeInfo{
+		ID: n.fingers[0].start,
+	})
+	if err != nil {
+		return err
+	}
+
+	n.predecessor, err = n.fingers[0].node.predecessor()
+	if err != nil {
+		return err
+	}
+	err = n.fingers[0].node.setPredecessor(n.Info())
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < len(n.fingers)-1; i++ {
+
+		//if finger[i+1].start in [n.ID , n.fingers[i].node.ID)
+		if compareID(n.fingers[i+1].start, n.ID) != less &&
+			compareID(n.fingers[i+1].start, n.fingers[i].node.ID) == less {
+			n.fingers[i+1].node = n.fingers[i].node
+		} else {
+
+			// cli := NewNodeClient(conn)
+			n.fingers[i+1].node, err = cli.FindSuccessor(context.Background(), &NodeInfo{
+				ID: n.fingers[i+1].start,
+			})
+			if err != nil {
+				return err
+			}
+
+		}
+
+	}
+
+	return nil
+}
+
+//update all nodes whose finger tables should refer to n
+func (n *Node) updateOthers() error {
+
+	for i := range n.fingers {
+
+		p, err := n.findPredecessor(&NodeInfo{
+			ID: subID(n.ID, int(math.Pow(2, float64(i-1)))),
+		})
+		if err != nil {
+			return err
+		}
+
+		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", p.IP, p.Port), grpc.WithInsecure())
 		if err != nil {
 			return err
 		}
 		defer conn.Close()
 
-		rpcClient := NewNodeClient(conn)
-		_, err = rpcClient.OnJoin(context.Background(), info[0])
+		cli := NewNodeClient(conn)
+		_, err = cli.UpdateFingerTable(context.Background(), &UpdateRequest{
+			Updater: n.Info(),
+			I:       int32(i),
+		})
+		if err != nil {
+			return err
+		}
 
-		return err
 	}
-	// only n in the network
-	n.fingers = make([]*finger, n.m)
-	for i := range n.fingers {
-		n.fingers[i].node = n
-	}
-	n.predecessor = n
 
 	return nil
+}
 
+//UpdateFingerTable implements NOdeServer interface [rpc]
+func (n *Node) UpdateFingerTable(ctx context.Context, req *UpdateRequest) (*google_protobuf.Empty, error) {
+
+	return &google_protobuf.Empty{}, n.updateFingerTable(req.Updater, req.I)
+}
+
+//update finger table [local invoke]
+func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
+
+	//info.ID in [n.ID , n.fingers[i].node.ID)
+	if compareID(info.ID, n.ID) != less &&
+		compareID(info.ID, n.fingers[i].node.ID) == less {
+		n.fingers[i].node = info
+
+		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", n.predecessor.IP, n.predecessor.Port), grpc.WithInsecure())
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		cli := NewNodeClient(conn)
+		_, err = cli.UpdateFingerTable(context.Background(), &UpdateRequest{
+			Updater: info,
+			I:       i,
+		})
+		if err != nil {
+			return err
+		}
+
+	}
+
+	return nil
 }
 
 //force interface check
@@ -127,14 +247,16 @@ func (n *Node) Join(info ...*NodeInfo) error {
 //OnJoin implements NodeServer interface [rpc]
 func (n *Node) OnJoin(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
 
+	//TODO: fake implementation  !!!!!!  <<<<<<<<<
+
 	newNode := &Node{
 		IP:   info.IP,
 		Port: info.Port,
 	}
 
-	n.successor = newNode
+	n.fingers[0].node = newNode.Info()
 
-	n.predecessor = newNode
+	n.predecessor = newNode.Info()
 
 	fmt.Printf("%#v\n", n)
 
@@ -170,10 +292,15 @@ func (n *Node) FindPredecessor(ctx context.Context, info *NodeInfo) (*NodeInfo, 
 //findPredecessor [local invoke]
 func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 
-	nodeTmp := n
-
-	// for info.ID > nodeTmp.ID && info.ID <= nodeTmp.successor.ID {
-	for !nodeTmp.isGreaterThan(info.ID) && nodeTmp.successor.isGreaterThan(info.ID) {
+	nodeTmp := n.Info()
+	for {
+		// for info.ID in (nodeTmp.ID,nodeTmp.successor.ID]
+		if compRes := compareID(info.ID, nodeTmp.ID); compRes != greater {
+			break
+		}
+		if compRes := compareID(info.ID, nodeTmp.Successor.ID); compRes == greater {
+			break
+		}
 
 		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", nodeTmp.IP, nodeTmp.Port), grpc.WithInsecure())
 		if err != nil {
@@ -181,7 +308,7 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 		}
 
 		cli := NewNodeClient(conn)
-		resp, err := cli.ClosestPrecedingFinger(context.Background(), &NodeInfo{
+		nodeTmp, err = cli.ClosestPrecedingFinger(context.Background(), &NodeInfo{
 			ID: info.ID,
 		})
 		conn.Close()
@@ -189,20 +316,9 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 			return nil, err
 		}
 
-		nodeTmp = &Node{
-			ID:   resp.ID,
-			IP:   resp.IP,
-			Port: resp.Port,
-			successor: &Node{
-				ID:   resp.Successor.ID,
-				IP:   resp.Successor.IP,
-				Port: resp.Successor.Port,
-			},
-		}
-
 	}
 
-	return nodeTmp.Info(), nil
+	return nodeTmp, nil
 }
 
 //ClosestPrecedingFinger implements NodeServer interface [rpc]
@@ -215,10 +331,26 @@ func (n *Node) ClosestPrecedingFinger(ctx context.Context, info *NodeInfo) (*Nod
 func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 
 	for i := len(n.fingers) - 1; i >= 0; i-- {
-		if !n.fingers[i].node.isGreaterThan(info.ID) && n.fingers[i].node.isGreaterThan(info.ID) {
-			return n.fingers[i].node.Info(), nil
+		//n.fingers[i].node.ID in (n.ID,info.ID)
+		if compareID(n.fingers[i].node.ID, n.ID) == greater &&
+			compareID(n.fingers[i].node.ID, info.ID) == less {
+			return n.fingers[i].node, nil
 		}
 	}
 
 	return n.Info(), nil
+}
+
+//Predecessor implements NodeServer interface [rpc]
+func (n *Node) Predecessor(ctx context.Context, _ *google_protobuf.Empty) (*NodeInfo, error) {
+
+	return n.predecessor, nil
+}
+
+//SetPredecessor implements NodeServer interface [rpc]
+func (n *Node) SetPredecessor(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
+
+	n.predecessor = info
+
+	return &google_protobuf.Empty{}, nil
 }

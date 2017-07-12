@@ -8,22 +8,34 @@ import "google/protobuf/empty.proto";
 // node definition region
 service Node{
 
+    //get and set node's predecessor
+    rpc Predecessor(google.protobuf.Empty) returns (NodeInfo){}
+    rpc SetPredecessor(NodeInfo) returns (google.protobuf.Empty) {}
+
     rpc OnJoin(NodeInfo) returns (google.protobuf.Empty) {}
     rpc OnNotify(NodeInfo) returns (google.protobuf.Empty) {}
 
+    rpc UpdateFingerTable(UpdateRequest) returns (google.protobuf.Empty){}
 
+    //NodeInfo.ID is the only available parma in the following func 
     rpc FindSuccessor(NodeInfo) returns (NodeInfo) {}
     rpc FindPredecessor(NodeInfo) returns (NodeInfo) {}
     rpc ClosestPrecedingFinger(NodeInfo) returns (NodeInfo) {}
 }
 
 message NodeInfo{
-    bytes   ID=1;
-    string  IP=2;
-    string  Port=3;
-    NodeInfo Successor=4;
+    bytes       ID=1;
+    string      IP=2;
+    string      Port=3;
+    NodeInfo    Successor=4;
 
 }
+
+message UpdateRequest{
+    NodeInfo    Updater=1;
+    int32       I=2;
+}
+
 // end of node region
 /////////////////////
 
