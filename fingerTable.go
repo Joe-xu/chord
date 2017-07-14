@@ -3,10 +3,14 @@ package chord
 import (
 	"fmt"
 
+	"bytes"
+
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
+
+const MaxFingerTableLen = 32
 
 type fingerTable []*finger
 
@@ -16,6 +20,23 @@ type finger struct {
 	interval int       // [ fingers[k].start , fingers[k+1].start )
 	node     *NodeInfo //first node >= fingers[k].start
 }
+
+func (ft fingerTable) String() string {
+
+	buf := bytes.NewBuffer(nil)
+	for i := range ft {
+		fmt.Fprintf(buf, "%s\n", ft[i])
+	}
+	return buf.String()
+}
+
+func (f *finger) String() string {
+	return fmt.Sprintf("start: % x | interval: %d | node: %s", f.start, f.interval, f.node)
+}
+
+// func (n *NodeInfo) String() string {
+// 	return fmt.Sprintf("ID: % x | Addr: %s:%s ", n.ID, n.IP, n.Port)
+// }
 
 //get predecessor
 func (n *NodeInfo) predecessor() (*NodeInfo, error) {

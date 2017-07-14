@@ -92,11 +92,10 @@ func addID(a []byte, b uint32) []byte {
 	return res
 }
 
-//max returns the greater one
-func max(a, b int) int {
+func min(a, b int) int {
 	if a > b {
-		return a
+		return b
 	}
 
-	return b
+	return a
 }

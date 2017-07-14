@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 
+	"log"
+
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -53,10 +55,15 @@ func NewNode(port string) *Node {
 	n.ID = n.hashMethod.Sum([]byte(n.IP + n.Port))
 	n.hashBitL = len(n.ID) * 8
 
-	n.fingers = make([]*finger, n.hashBitL)
+	n.fingers = make([]*finger, min(n.hashBitL, MaxFingerTableLen))
 	for i := range n.fingers {
-		n.fingers[i] = &finger{}
+		n.fingers[i] = &finger{
+			start: addID(n.ID, uint32(math.Pow(2, float64(i)))),
+		}
+
 	}
+
+	fmt.Println(n.fingers) // DEBUG
 
 	return n
 }
@@ -115,6 +122,8 @@ func (n *Node) Serve(network string, port string) error {
 
 //Join let n join the network,accept arbitrary node's info as parma
 func (n *Node) Join(info ...*NodeInfo) error {
+
+	// defer fmt.Println(n.fingers) // DEBUG
 
 	if len(info) >= 1 { //TODO:handle multiple join <<<<<<<<<<<<<<
 
@@ -200,7 +209,7 @@ func (n *Node) updateOthers() error {
 	for i := range n.fingers {
 
 		p, err := n.findPredecessor(&NodeInfo{
-			ID: subID(n.ID, uint32(math.Pow(2, float64(i-1)))),
+			ID: subID(n.ID, uint32(math.Pow(2, float64(i)))),
 		})
 		if err != nil {
 			return err
@@ -228,7 +237,7 @@ func (n *Node) updateOthers() error {
 
 //UpdateFingerTable implements NOdeServer interface [rpc]
 func (n *Node) UpdateFingerTable(ctx context.Context, req *UpdateRequest) (*google_protobuf.Empty, error) {
-
+	log.Println("UpdateFingerTable")
 	return &google_protobuf.Empty{}, n.updateFingerTable(req.Updater, req.I)
 }
 
@@ -267,7 +276,7 @@ func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 
 //OnJoin implements NodeServer interface [rpc]
 func (n *Node) OnJoin(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
-
+	log.Println("OnJoin")
 	//TODO: fake implementation  !!!!!!  <<<<<<<<<
 
 	newNode := &Node{
@@ -286,13 +295,13 @@ func (n *Node) OnJoin(ctx context.Context, info *NodeInfo) (*google_protobuf.Emp
 
 //OnNotify implements NodeServer interface [rpc]
 func (n *Node) OnNotify(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
-
+	log.Println("OnNOtify")
 	return &google_protobuf.Empty{}, nil
 }
 
 //FindSuccessor implements NodeServer interface [rpc]
 func (n *Node) FindSuccessor(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
-
+	log.Println("FindSuccessor")
 	return n.findSuccessor(info)
 }
 
@@ -306,7 +315,7 @@ func (n *Node) findSuccessor(info *NodeInfo) (*NodeInfo, error) {
 
 //FindPredecessor implements NodeServer interface [rpc]
 func (n *Node) FindPredecessor(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
-
+	log.Println("FindPredecessor")
 	return n.findPredecessor(info)
 }
 
@@ -344,7 +353,7 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 
 //ClosestPrecedingFinger implements NodeServer interface [rpc]
 func (n *Node) ClosestPrecedingFinger(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
-
+	log.Println("ClosestPrecedingFinger")
 	return n.closestPrecedingFinger(info)
 }
 
@@ -366,7 +375,7 @@ func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 
 //Predecessor implements NodeServer interface [rpc]
 func (n *Node) Predecessor(ctx context.Context, _ *google_protobuf.Empty) (*NodeInfo, error) {
-
+	log.Println("Predecessor")
 	n.Lock()
 	defer n.Unlock()
 	return n.predecessor, nil
@@ -374,7 +383,7 @@ func (n *Node) Predecessor(ctx context.Context, _ *google_protobuf.Empty) (*Node
 
 //SetPredecessor implements NodeServer interface [rpc]
 func (n *Node) SetPredecessor(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
-
+	log.Println("SetPredecessor")
 	n.Lock()
 	n.predecessor = info
 	n.Unlock()
