@@ -12,9 +12,9 @@ type fingerTable []*finger
 
 //item of finger table
 type finger struct {
-	start    []byte //ID
-	interval int
-	node     *NodeInfo
+	start    []byte    // ID , ( n + 2^(k-1) ) mod 2^m , 1 <= k <= m
+	interval int       // [ fingers[k].start , fingers[k+1].start )
+	node     *NodeInfo //first node >= fingers[k].start
 }
 
 //get predecessor

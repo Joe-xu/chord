@@ -2,6 +2,8 @@ package chord
 
 import "encoding/binary"
 
+import "math"
+
 const (
 	less = iota
 	equal
@@ -29,13 +31,63 @@ func compareID(a, b []byte) int {
 }
 
 //subID returns result of a subtracts b
-func subID(a []byte, b int) []byte {
+func subID(a []byte, b uint32) []byte {
 
 	res := make([]byte, len(a))
 	copy(res, a)
 
 	tmp := binary.BigEndian.Uint32(res[len(res)-4:])
-	binary.BigEndian.PutUint32(res[len(res)-4:], tmp-uint32(b))
+	if tmp < b {
+		if len(res) < 5 {
+			panic("overflow")
+		}
+
+		for i := len(res) - 5; i >= 0; i-- {
+			if res[i] == 0x00 {
+				res[i] = 0xff
+				if i == 0 {
+					panic("overflow")
+				}
+			} else {
+				res[i]--
+				break
+			}
+		}
+	}
+
+	binary.BigEndian.PutUint32(res[len(res)-4:], tmp-b)
+
+	return res
+}
+
+//addID returns result of a and b
+func addID(a []byte, b uint32) []byte {
+
+	res := make([]byte, len(a))
+	copy(res, a)
+
+	tmp := binary.BigEndian.Uint32(res[len(res)-4:])
+
+	if b > math.MaxUint32-tmp {
+
+		if len(res) < 5 {
+			panic("overflow")
+		}
+
+		for i := len(res) - 5; i >= 0; i-- {
+			if res[i] == 0xff {
+				res[i] = 0x00
+				if i == 0 {
+					panic("overflow")
+				}
+			} else {
+				res[i]++
+				break
+			}
+		}
+	}
+
+	binary.BigEndian.PutUint32(res[len(res)-4:], tmp+b)
 
 	return res
 }
