@@ -16,10 +16,9 @@ import (
 	"crypto/md5"
 	"fmt"
 	"hash"
+	"math"
 	"net"
 	"strings"
-
-	"math"
 
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"

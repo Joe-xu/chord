@@ -1,5 +1,7 @@
 package chord
 
+import "encoding/binary"
+
 const (
 	less = iota
 	equal
@@ -28,8 +30,14 @@ func compareID(a, b []byte) int {
 
 //subID returns result of a subtracts b
 func subID(a []byte, b int) []byte {
-	//<<<<<<<<
-	return []byte{}
+
+	res := make([]byte, len(a))
+	copy(res, a)
+
+	tmp := binary.BigEndian.Uint32(res[len(res)-4:])
+	binary.BigEndian.PutUint32(res[len(res)-4:], tmp-uint32(b))
+
+	return res
 }
 
 //max returns the greater one
