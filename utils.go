@@ -1,7 +1,5 @@
 package chord
 
-import "encoding/binary"
-
 import "math"
 
 const (
@@ -30,64 +28,106 @@ func compareID(a, b []byte) int {
 	return greater
 }
 
-//subID returns result of a subtracts b
-func subID(a []byte, b uint32) []byte {
+//subID returns result of ID subtracts n
+//assume ID's length  is bigger than n's
+func subID(ID, n []byte) []byte {
 
-	res := make([]byte, len(a))
-	copy(res, a)
-
-	tmp := binary.BigEndian.Uint32(res[len(res)-4:])
-	if tmp < b {
-		if len(res) < 5 {
-			panic("overflow")
-		}
-
-		for i := len(res) - 5; i >= 0; i-- {
-			if res[i] == 0x00 {
-				res[i] = 0xff
-				if i == 0 {
-					panic("overflow")
-				}
-			} else {
-				res[i]--
-				break
-			}
-		}
+	nLen, idLen := len(n), len(ID)
+	diff := idLen - nLen
+	if diff < 0 {
+		panic("overflow")
 	}
 
-	binary.BigEndian.PutUint32(res[len(res)-4:], tmp-b)
+	res := make([]byte, idLen)
+	copy(res, ID)
+
+	flag := byte(0x00)
+	for i := idLen - 1; i >= 0; i-- {
+
+		if ID[i] < flag { //ID[i]-flag overflow
+			res[i] -= flag
+			flag = 0x00
+			flag++
+		} else {
+			res[i] -= flag
+			flag = 0x00
+		}
+
+		if i >= diff {
+
+			if res[i] < n[i-diff] {
+				flag++
+			}
+			res[i] -= n[i-diff]
+
+		}
+
+		if i-diff <= 0 && flag == 0 {
+			break
+		}
+
+	}
+
+	if flag != 0x00 {
+		panic("overflow")
+	}
 
 	return res
 }
 
-//addID returns result of a and b
-func addID(a []byte, b uint32) []byte {
+//addID returns result of ID and n
+//assume ID's length  is bigger than n's
+func addID(ID, n []byte) []byte {
 
-	res := make([]byte, len(a))
-	copy(res, a)
-
-	tmp := binary.BigEndian.Uint32(res[len(res)-4:])
-
-	if b > math.MaxUint32-tmp {
-
-		if len(res) < 5 {
-			panic("overflow")
-		}
-
-		for i := len(res) - 5; i >= 0; i-- {
-			if res[i] == 0xff {
-				res[i] = 0x00
-				if i == 0 {
-					panic("overflow")
-				}
-			} else {
-				res[i]++
-				break
-			}
-		}
+	nLen, idLen := len(n), len(ID)
+	diff := idLen - nLen
+	if diff < 0 {
+		panic("overflow")
 	}
 
-	binary.BigEndian.PutUint32(res[len(res)-4:], tmp+b)
+	res := make([]byte, idLen)
+	copy(res, ID)
+
+	flag := byte(0x00)
+	for i := idLen - 1; i >= 0; i-- {
+
+		if math.MaxUint8-ID[i] < flag { // ID[i]+flag overflow
+			res[i] += flag
+			flag = 0x00
+			flag++
+		} else {
+			res[i] += flag
+			flag = 0x00
+		}
+
+		if i >= diff {
+
+			if math.MaxUint8-res[i] < n[i-diff] {
+				flag++
+			}
+			res[i] += n[i-diff]
+
+		}
+
+		if i-diff <= 0 && flag == 0 {
+			break
+		}
+
+	}
+
+	if flag != 0x00 {
+		panic("overflow")
+	}
+
+	return res
+}
+
+//pow2 return result of 2^e in byte
+func pow2(e int) []byte {
+
+	res := []byte{byte(1 << uint(e%8))}
+
+	res = append(res, make([]byte, e/8)...)
 
 	return res
 }
@@ -98,4 +138,28 @@ func min(a, b int) int {
 	}
 
 	return a
+}
+
+//mod2 return result of n mod 2^e in byte
+//		n mod 2^e = n & ( 1<<k- 1 )
+//assume n's length in bit is bigger than 2^e's
+func mod2(n []byte, e int) []byte {
+
+	res := make([]byte, len(n))
+	copy(res, n)
+
+	mod := subID(pow2(e), []byte{0x01})
+
+	diff := len(n) - len(mod)
+	for i := len(res) - 1; i >= 0; i-- {
+
+		if i-diff < 0 {
+			res[i] = 0x00
+		} else {
+			res[i] &= mod[i-diff]
+		}
+
+	}
+
+	return res
 }

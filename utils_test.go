@@ -1,31 +1,31 @@
 package chord
 
 import (
-	"math"
 	"reflect"
 	"testing"
 )
 
 func Test_subID(t *testing.T) {
 	type args struct {
-		a []byte
-		b uint32
+		ID []byte
+		n  []byte
 	}
+
 	tests := []struct {
 		name string
 		args args
 		want []byte
 	}{
-		{"#0", args{a: []byte{0x00, 0x00, 0xab, 0xcd}, b: 1}, []byte{0x00, 0x00, 0xab, 0xcc}},
-		{"#1", args{a: []byte{0x00, 0x00, 0xab, 0xcd}, b: 256}, []byte{0x00, 0x00, 0xaa, 0xcd}},
-		{"#3", args{a: []byte{0xab, 0xcd, 0x00, 0x00, 0x00, 0x00}, b: math.MaxUint32}, []byte{0xab, 0xcc, 0x00, 0x00, 0x00, 0x01}},
-		{"#4", args{a: []byte{0xab, 0x00, 0x00, 0x00, 0x00, 0x00}, b: math.MaxUint32}, []byte{0xaa, 0xff, 0x00, 0x00, 0x00, 0x01}},
+		{"#0", args{ID: []byte{0x00, 0x00, 0xab, 0xcd}, n: []byte{0x01}}, []byte{0x00, 0x00, 0xab, 0xcc}},
+		{"#1", args{ID: []byte{0x00, 0x00, 0xab, 0xcd}, n: []byte{0x01, 0x00}}, []byte{0x00, 0x00, 0xaa, 0xcd}},
+		{"#3", args{ID: []byte{0xab, 0xcd, 0x00, 0x00, 0x00, 0x00}, n: []byte{0xff, 0xff, 0xff, 0xff}}, []byte{0xab, 0xcc, 0x00, 0x00, 0x00, 0x01}},
+		{"#4", args{ID: []byte{0xab, 0x00, 0x00, 0x00, 0x00, 0x00}, n: []byte{0xff, 0xff, 0xff, 0xff}}, []byte{0xaa, 0xff, 0x00, 0x00, 0x00, 0x01}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := subID(tt.args.a, tt.args.b); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("subID() = %v, want %v", got, tt.want)
+			if got := subID(tt.args.ID, tt.args.n); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("subID() = % x, want % x", got, tt.want)
 			}
 		})
 	}
@@ -48,7 +48,7 @@ func Test_compareID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := compareID(tt.args.a, tt.args.b); got != tt.want {
-				t.Errorf("compareID() = %v, want %v", got, tt.want)
+				t.Errorf("compareID() = % x, want % x", got, tt.want)
 			}
 		})
 	}
@@ -56,23 +56,70 @@ func Test_compareID(t *testing.T) {
 
 func Test_addID(t *testing.T) {
 	type args struct {
-		a []byte
-		b uint32
+		ID []byte
+		n  []byte
+	}
+
+	tests := []struct {
+		name string
+		args args
+		want []byte
+	}{
+		{"#0", args{ID: []byte{0x00, 0x00, 0xab, 0xcc}, n: []byte{0x01}}, []byte{0x00, 0x00, 0xab, 0xcd}},
+		{"#1", args{ID: []byte{0x00, 0x00, 0xaa, 0xcd}, n: []byte{0x01, 0x00}}, []byte{0x00, 0x00, 0xab, 0xcd}},
+		{"#3", args{ID: []byte{0xab, 0xcc, 0x00, 0x00, 0x00, 0x01}, n: []byte{0xff, 0xff, 0xff, 0xff}}, []byte{0xab, 0xcd, 0x00, 0x00, 0x00, 0x00}},
+		{"#4", args{ID: []byte{0xaa, 0xff, 0x00, 0x00, 0x00, 0x01}, n: []byte{0xff, 0xff, 0xff, 0xff}}, []byte{0xab, 0x00, 0x00, 0x00, 0x00, 0x00}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := addID(tt.args.ID, tt.args.n); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("addID() = % x, want % x", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_pow2(t *testing.T) {
+	type args struct {
+		e int
 	}
 	tests := []struct {
 		name string
 		args args
 		want []byte
 	}{
-		{"#0", args{a: []byte{0x00, 0x00, 0xab, 0xcc}, b: 1}, []byte{0x00, 0x00, 0xab, 0xcd}},
-		{"#1", args{a: []byte{0x00, 0x00, 0xaa, 0xcd}, b: 256}, []byte{0x00, 0x00, 0xab, 0xcd}},
-		{"#3", args{a: []byte{0xab, 0xcc, 0x00, 0x00, 0x00, 0x01}, b: math.MaxUint32}, []byte{0xab, 0xcd, 0x00, 0x00, 0x00, 0x00}},
-		{"#4", args{a: []byte{0xaa, 0xff, 0x00, 0x00, 0x00, 0x01}, b: math.MaxUint32}, []byte{0xab, 0x00, 0x00, 0x00, 0x00, 0x00}},
+		{"#0", args{0}, []byte{0x01}},
+		{"#1", args{1}, []byte{0x02}},
+		{"#2", args{8}, []byte{0x01, 0x00}},
+		{"#3", args{12}, []byte{0x10, 0x00}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := addID(tt.args.a, tt.args.b); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("addID() = %v, want %v", got, tt.want)
+			if got := pow2(tt.args.e); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("pow2() = % x, want % x", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_mod2(t *testing.T) {
+	type args struct {
+		n []byte
+		e int
+	}
+	tests := []struct {
+		name string
+		args args
+		want []byte
+	}{
+		{"#0", args{n: []byte{0x01}, e: 1}, []byte{0x01}},
+		{"#1", args{n: []byte{0x03}, e: 1}, []byte{0x01}},
+		{"#2", args{n: []byte{0xff, 0xff}, e: 4}, []byte{0x00, 0x0f}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mod2(tt.args.n, tt.args.e); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("mod2() = % x, want % x", got, tt.want)
 			}
 		})
 	}

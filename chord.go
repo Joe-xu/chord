@@ -16,13 +16,11 @@ import (
 	"crypto/md5"
 	"fmt"
 	"hash"
-	"math"
 	"net"
 	"strings"
 	"sync"
 
-	"log"
-
+	"github.com/Joe-xu/logger"
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -54,11 +52,13 @@ func NewNode(port string) *Node {
 	// n.successor = n.fingers[0].node
 	n.ID = n.hashMethod.Sum([]byte(n.IP + n.Port))
 	n.hashBitL = len(n.ID) * 8
+	n.ID = mod2(n.ID, n.hashBitL)
 
-	n.fingers = make([]*finger, min(n.hashBitL, MaxFingerTableLen))
+	n.fingers = make([]*finger, n.hashBitL)
+
 	for i := range n.fingers {
 		n.fingers[i] = &finger{
-			start: addID(n.ID, uint32(math.Pow(2, float64(i)))),
+			start: mod2(addID(n.ID, pow2(i)), n.hashBitL),
 		}
 
 	}
@@ -120,6 +120,13 @@ func (n *Node) Serve(network string, port string) error {
 	return err
 }
 
+// DEBUG
+func (n *Node) LogFingerTable() string {
+	n.Lock()
+	defer n.Unlock()
+	return fmt.Sprintf("%s \n predecessor:%s", n.fingers, n.predecessor)
+}
+
 //Join let n join the network,accept arbitrary node's info as parma
 func (n *Node) Join(info ...*NodeInfo) error {
 
@@ -151,6 +158,7 @@ func (n *Node) Join(info ...*NodeInfo) error {
 //initFingerTable init node local finger table
 func (n *Node) initFingerTable(info *NodeInfo) error {
 
+	logger.Info.Printf("[initFingerTable]dial up %s:%s", info.IP, info.Port)
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", info.IP, info.Port), grpc.WithInsecure())
 	if err != nil {
 		return err
@@ -209,11 +217,18 @@ func (n *Node) updateOthers() error {
 	for i := range n.fingers {
 
 		p, err := n.findPredecessor(&NodeInfo{
-			ID: subID(n.ID, uint32(math.Pow(2, float64(i)))),
+			ID: subID(n.ID, pow2(i)),
 		})
 		if err != nil {
 			return err
 		}
+
+		logger.Info.Printf("[updateOthers]dial up %s:%s", p.IP, p.Port)
+
+		// if p.IP == n.IP && p.Port == n.Port {
+		// 	logger.Warn.Print("[updateOthers] skip local rpc")
+		// 	continue
+		// }
 
 		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", p.IP, p.Port), grpc.WithInsecure())
 		if err != nil {
@@ -237,7 +252,8 @@ func (n *Node) updateOthers() error {
 
 //UpdateFingerTable implements NOdeServer interface [rpc]
 func (n *Node) UpdateFingerTable(ctx context.Context, req *UpdateRequest) (*google_protobuf.Empty, error) {
-	log.Println("UpdateFingerTable")
+
+	logger.Info.Println("UpdateFingerTable")
 	return &google_protobuf.Empty{}, n.updateFingerTable(req.Updater, req.I)
 }
 
@@ -245,12 +261,15 @@ func (n *Node) UpdateFingerTable(ctx context.Context, req *UpdateRequest) (*goog
 func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 
 	//info.ID in [n.ID , n.fingers[i].node.ID)
-	n.Lock()
-	defer n.Unlock()
 	if compareID(info.ID, n.ID) != less &&
 		compareID(info.ID, n.fingers[i].node.ID) == less {
+
+		n.Lock()
+		defer n.Unlock()
+
 		n.fingers[i].node = info
 
+		logger.Info.Printf("[updateFingerTable]dial up %s:%s", n.predecessor.IP, n.predecessor.Port)
 		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", n.predecessor.IP, n.predecessor.Port), grpc.WithInsecure())
 		if err != nil {
 			return err
@@ -276,7 +295,7 @@ func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 
 //OnJoin implements NodeServer interface [rpc]
 func (n *Node) OnJoin(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
-	log.Println("OnJoin")
+	logger.Info.Println("OnJoin")
 	//TODO: fake implementation  !!!!!!  <<<<<<<<<
 
 	newNode := &Node{
@@ -295,13 +314,13 @@ func (n *Node) OnJoin(ctx context.Context, info *NodeInfo) (*google_protobuf.Emp
 
 //OnNotify implements NodeServer interface [rpc]
 func (n *Node) OnNotify(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
-	log.Println("OnNOtify")
+	logger.Info.Println("OnNOtify")
 	return &google_protobuf.Empty{}, nil
 }
 
 //FindSuccessor implements NodeServer interface [rpc]
 func (n *Node) FindSuccessor(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
-	log.Println("FindSuccessor")
+	logger.Info.Println("FindSuccessor")
 	return n.findSuccessor(info)
 }
 
@@ -315,7 +334,7 @@ func (n *Node) findSuccessor(info *NodeInfo) (*NodeInfo, error) {
 
 //FindPredecessor implements NodeServer interface [rpc]
 func (n *Node) FindPredecessor(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
-	log.Println("FindPredecessor")
+	logger.Info.Println("FindPredecessor")
 	return n.findPredecessor(info)
 }
 
@@ -323,15 +342,12 @@ func (n *Node) FindPredecessor(ctx context.Context, info *NodeInfo) (*NodeInfo, 
 func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 
 	nodeTmp := n.info()
-	for {
-		// for info.ID in (nodeTmp.ID,nodeTmp.successor.ID]
-		if compRes := compareID(info.ID, nodeTmp.ID); compRes != greater {
-			break
-		}
-		if compRes := compareID(info.ID, nodeTmp.Successor.ID); compRes == greater {
-			break
-		}
 
+	// for info.ID NOT in (nodeTmp.ID,nodeTmp.successor.ID]
+	for compareID(info.ID, nodeTmp.ID) != greater ||
+		compareID(info.ID, nodeTmp.Successor.ID) == greater {
+
+		logger.Info.Printf("[findPredecessor]dial up %s:%s", nodeTmp.IP, nodeTmp.Port)
 		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", nodeTmp.IP, nodeTmp.Port), grpc.WithInsecure())
 		if err != nil {
 			return nil, err
@@ -353,7 +369,7 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 
 //ClosestPrecedingFinger implements NodeServer interface [rpc]
 func (n *Node) ClosestPrecedingFinger(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
-	log.Println("ClosestPrecedingFinger")
+	logger.Info.Println("ClosestPrecedingFinger")
 	return n.closestPrecedingFinger(info)
 }
 
@@ -375,17 +391,21 @@ func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 
 //Predecessor implements NodeServer interface [rpc]
 func (n *Node) Predecessor(ctx context.Context, _ *google_protobuf.Empty) (*NodeInfo, error) {
-	log.Println("Predecessor")
+
 	n.Lock()
+	logger.Info.Printf("[Predecessor]: %s", n.predecessor)
 	defer n.Unlock()
 	return n.predecessor, nil
+
 }
 
 //SetPredecessor implements NodeServer interface [rpc]
 func (n *Node) SetPredecessor(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
-	log.Println("SetPredecessor")
+
+	logger.Info.Printf("[SetPredecessor]: %s", info)
 	n.Lock()
 	n.predecessor = info
 	n.Unlock()
 	return &google_protobuf.Empty{}, nil
+
 }
