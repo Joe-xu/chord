@@ -5,12 +5,11 @@ import (
 
 	"bytes"
 
+	"github.com/Joe-xu/logger"
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
-
-const MaxFingerTableLen = 32
 
 type fingerTable []*finger
 
@@ -41,6 +40,7 @@ func (f *finger) String() string {
 //get predecessor
 func (n *NodeInfo) predecessor() (*NodeInfo, error) {
 
+	logger.Info.Printf("[predecessor]dial up %s:%s", n.IP, n.Port)
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", n.IP, n.Port), grpc.WithInsecure())
 	if err != nil {
 		return nil, err
@@ -54,6 +54,7 @@ func (n *NodeInfo) predecessor() (*NodeInfo, error) {
 
 func (n *NodeInfo) setPredecessor(info *NodeInfo) error {
 
+	logger.Info.Printf("[setPredecessor]dial up %s:%s", n.IP, n.Port)
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", n.IP, n.Port), grpc.WithInsecure())
 	if err != nil {
 		return err
