@@ -38,10 +38,10 @@ func (f *finger) String() string {
 // }
 
 //get predecessor
-func (n *NodeInfo) predecessor() (*NodeInfo, error) {
+func (ni *NodeInfo) predecessor() (*NodeInfo, error) {
 
-	logger.Info.Printf("[predecessor]dial up %s:%s", n.IP, n.Port)
-	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", n.IP, n.Port), grpc.WithInsecure())
+	logger.Info.Printf("[predecessor]dial up %s:%s", ni.IP, ni.Port)
+	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", ni.IP, ni.Port), grpc.WithInsecure())
 	if err != nil {
 		return nil, err
 	}
@@ -52,10 +52,10 @@ func (n *NodeInfo) predecessor() (*NodeInfo, error) {
 
 }
 
-func (n *NodeInfo) setPredecessor(info *NodeInfo) error {
+func (ni *NodeInfo) setPredecessor(info *NodeInfo) error {
 
-	logger.Info.Printf("[setPredecessor]dial up %s:%s", n.IP, n.Port)
-	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", n.IP, n.Port), grpc.WithInsecure())
+	logger.Info.Printf("[setPredecessor]dial up %s:%s", ni.IP, ni.Port)
+	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", ni.IP, ni.Port), grpc.WithInsecure())
 	if err != nil {
 		return err
 	}
@@ -63,5 +63,34 @@ func (n *NodeInfo) setPredecessor(info *NodeInfo) error {
 
 	cli := NewNodeClient(conn)
 	_, err = cli.SetPredecessor(context.Background(), info)
+	return err
+}
+
+//get successor
+func (ni *NodeInfo) successor() (*NodeInfo, error) {
+
+	logger.Info.Printf("[successor]dial up %s:%s", ni.IP, ni.Port)
+	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", ni.IP, ni.Port), grpc.WithInsecure())
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	cli := NewNodeClient(conn)
+	return cli.Successor(context.Background(), &google_protobuf.Empty{})
+
+}
+
+func (ni *NodeInfo) setSuccessor(info *NodeInfo) error {
+
+	logger.Info.Printf("[setSuccessor]dial up %s:%s", ni.IP, ni.Port)
+	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", ni.IP, ni.Port), grpc.WithInsecure())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	cli := NewNodeClient(conn)
+	_, err = cli.SetSuccessor(context.Background(), info)
 	return err
 }

@@ -12,6 +12,10 @@ service Node{
     rpc Predecessor(google.protobuf.Empty) returns (NodeInfo){}
     rpc SetPredecessor(NodeInfo) returns (google.protobuf.Empty) {}
 
+    //get and set node's successor
+    rpc Successor(google.protobuf.Empty) returns (NodeInfo){}
+    rpc SetSuccessor(NodeInfo) returns (google.protobuf.Empty) {}
+
     rpc OnJoin(NodeInfo) returns (google.protobuf.Empty) {}
     rpc OnNotify(NodeInfo) returns (google.protobuf.Empty) {}
 
