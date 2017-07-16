@@ -68,9 +68,9 @@ func subID(ID, n []byte) []byte {
 
 	}
 
-	if flag != 0x00 {
-		panic("overflow")
-	}
+	// if flag != 0x00 {
+	// 	panic("overflow")
+	// }
 
 	return res
 }
@@ -162,4 +162,14 @@ func mod2(n []byte, e int) []byte {
 	}
 
 	return res
+}
+
+//isSameNode tell if a and b is the same node
+func isSameNode(a, b *NodeInfo) bool {
+
+	if a.IP == b.IP && a.Port == b.Port { //do not check ID now
+		return true
+	}
+
+	return false
 }
