@@ -137,6 +137,38 @@ func (n *Node) LogFingerTable() string {
 	return fmt.Sprintf("=====\n\n%s \npredecessor:%s\n====\n\n", n.fingers, n.predecessor)
 }
 
+// //Join let n join the network,accept arbitrary node's info as parma
+// func (n *Node) Join(info ...*NodeInfo) error {
+
+// 	// defer fmt.Println(n.fingers) // DEBUG
+// 	n.Lock()
+// 	defer n.Unlock()
+
+// 	if len(info) >= 1 { //TODO:handle multiple join <<<<<<<<<<<<<<
+
+// 		err := n.initFingerTable(info[0])
+// 		if err != nil {
+// 			return nil
+// 		}
+
+// 		logger.Debug.Printf("%s predecessor:%s \n", n.fingers, n.predecessor) // DEBUG
+
+// 		err = n.updateOthers()
+// 		//TODO: move keys in (predecessor,n] from successor <<<<<<
+// 		return err
+// 	}
+// 	// only n in the network
+// 	for i := range n.fingers {
+// 		n.fingers[i].node = n.info()
+// 	}
+// 	n.fingers[0].node = n.info()      //patch
+// 	n.fingers[0].node.Successor = nil //clean off useless data
+// 	n.predecessor = n.info()
+
+// 	return nil
+
+// }
+
 //Join let n join the network,accept arbitrary node's info as parma
 func (n *Node) Join(info ...*NodeInfo) error {
 
@@ -144,24 +176,31 @@ func (n *Node) Join(info ...*NodeInfo) error {
 	n.Lock()
 	defer n.Unlock()
 
-	if len(info) >= 1 { //TODO:handle multiple join <<<<<<<<<<<<<<
-
-		err := n.initFingerTable(info[0])
-		if err != nil {
-			return nil
-		}
-
-		logger.Debug.Printf("%s predecessor:%s \n", n.fingers, n.predecessor) // DEBUG
-
-		err = n.updateOthers()
-		//TODO: move keys in (predecessor,n] from successor <<<<<<
-		return err
-	}
-	// only n in the network
 	for i := range n.fingers {
 		n.fingers[i].node = n.info()
 	}
-	n.fingers[0].node = n.info() //patch
+	if len(info) >= 1 { //TODO:handle multiple join <<<<<<<<<<<<<<
+
+		logger.Info.Printf("[initFingerTable]dial up %s:%s", info[0].IP, info[0].Port)
+		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", info[0].IP, info[0].Port), grpc.WithInsecure())
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		cli := NewNodeClient(conn)
+		n.fingers[0].node, err = cli.FindSuccessor(context.Background(), n.info())
+		n.fingers[0].node.Successor = nil //clean off useless data
+		n.predecessor = nil
+
+		return err
+	}
+	// only n in the network
+	// for i := range n.fingers {
+	// 	n.fingers[i].node = n.info()
+	// }
+	n.fingers[0].node = n.info()      //patch
+	n.fingers[0].node.Successor = nil //clean off useless data
 	n.predecessor = n.info()
 
 	return nil
@@ -280,9 +319,12 @@ func (n *Node) UpdateFingerTable(ctx context.Context, req *UpdateRequest) (*goog
 func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 
 	//info.ID in [n.ID , n.fingers[i].node.ID)
-	if compareID(n.ID, n.fingers[i].node.ID) != less ||
-		compareID(info.ID, n.ID) != less &&
-			compareID(info.ID, n.fingers[i].node.ID) == less {
+	//EXPERIEMNTAL:check n.ID with n.fingers[i].node.ID , in case of init-chaos
+	//if current finger is invaild,init-chaos,we take the newest and vaild one , aka. info.ID >= n.fingers[i].start
+	if (compareID(n.ID, n.fingers[i].node.ID) == equal &&
+		compareID(info.ID, n.fingers[i].start) != less) || //init case
+		(compareID(info.ID, n.ID) != less && //common case
+			compareID(info.ID, n.fingers[i].node.ID) == less) {
 
 		n.fingers[i].node = info
 		logger.Info.Printf("[updateFingerTable] %d-th finger updated: %v", i, info)
@@ -321,25 +363,6 @@ func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 //force interface check
 // var _ NodeServer = (*Node)(nil)
 
-//OnJoin implements NodeServer interface [rpc]
-func (n *Node) OnJoin(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
-	logger.Info.Println("OnJoin")
-	//TODO: fake implementation  !!!!!!  <<<<<<<<<
-
-	newNode := &Node{
-		IP:   info.IP,
-		Port: info.Port,
-	}
-
-	n.fingers[0].node = newNode.info()
-
-	n.predecessor = newNode.info()
-
-	logger.Debug.Printf("%#v\n", n)
-
-	return &google_protobuf.Empty{}, nil
-}
-
 //OnNotify implements NodeServer interface [rpc]
 func (n *Node) OnNotify(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
 	logger.Info.Println("OnNOtify")
@@ -376,7 +399,7 @@ func (n *Node) FindSuccessor(ctx context.Context, info *NodeInfo) (*NodeInfo, er
 func (n *Node) findSuccessor(info *NodeInfo) (*NodeInfo, error) {
 
 	node, err := n.findPredecessor(info)
-
+	node.Successor.Successor = nil //clean off useless data
 	return node.Successor, err
 }
 
@@ -395,10 +418,11 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 	nodeTmp := n.info()
 
 	// for info.ID NOT in (nodeTmp.ID,nodeTmp.successor.ID]
-	for (compareID(info.ID, nodeTmp.ID) != greater ||
-		compareID(info.ID, nodeTmp.Successor.ID) == greater) &&
-		compareID(nodeTmp.ID, nodeTmp.Successor.ID) != equal {
+	//EXPERIEMNTAL:check nodeTmp.ID with nodeTmp.Successor.ID , in case of init chaos
+	for compareID(info.ID, nodeTmp.ID) != greater ||
+		compareID(info.ID, nodeTmp.Successor.ID) == greater {
 
+		logger.Debug.Print("===================================")
 		logger.Debug.Printf("infoID:% x \nnodeTmpID: % x \n res:%v", info.ID, nodeTmp.ID, compareID(info.ID, nodeTmp.ID) != greater)
 		logger.Debug.Printf("infoID:% x \nnodeTmpSuID: % x \n res:%v", info.ID, nodeTmp.Successor.ID, compareID(info.ID, nodeTmp.Successor.ID) == greater)
 
@@ -408,6 +432,11 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 			nodeTmp, err = n.closestPrecedingFinger(info)
 			if err != nil {
 				return nil, err
+			}
+
+			if compareID(nodeTmp.ID, n.ID) == equal {
+				logger.Warn.Print("[findPredecessor][local invoke]break dead loop")
+				break
 			}
 
 		} else {
@@ -425,10 +454,23 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 			if err != nil {
 				return nil, err
 			}
+
+			if compareID(nodeTmp.ID, nodeTmp.Successor.ID) != less {
+				logger.Warn.Print("[findPredecessor][rpc]break dead loop")
+				break
+			}
 		}
+
+		logger.Debug.Printf("infoID:% x \nnodeTmpID: % x \n res:%v", info.ID, nodeTmp.ID, compareID(info.ID, nodeTmp.ID) != greater)
+		logger.Debug.Printf("infoID:% x \nnodeTmpSuID: % x \n res:%v", info.ID, nodeTmp.Successor.ID, compareID(info.ID, nodeTmp.Successor.ID) == greater)
+		logger.Debug.Print("===================================")
 
 		// if compareID(nodeTmp.ID, n.ID) == equal { //prevent dead loop
 		// 	logger.Warn.Print("[findPredecessor]break dead loop")
+		// 	break
+		// }
+
+		// if compareID(nodeTmp.ID, nodeTmp.Successor.ID) != less {
 		// 	break
 		// }
 
@@ -457,11 +499,14 @@ func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 	for i := len(n.fingers) - 1; i >= 0; i-- {
 
 		//n.fingers[i].node.ID in (n.ID,info.ID)
-		//EXPERIEMNTAL:check n.ID with info.ID , in case of init chaos  <<<<<
-		if compareID(n.ID, info.ID) != equal ||
-			compareID(n.fingers[i].node.ID, n.ID) == greater &&
-				compareID(n.fingers[i].node.ID, info.ID) == less {
-			if n.fingers[i].node.Successor == nil {
+		//EXPERIEMNTAL:check n.fingers[i].node.ID with n.fingers[i].start , in case of init chaos
+		if (compareID(n.fingers[i].node.ID, n.ID) == greater &&
+			compareID(n.fingers[i].node.ID, info.ID) == less) ||
+			(compareID(n.fingers[i].node.ID, n.fingers[i].start) == less && //init chaos
+				// compareID(n.ID, n.fingers[i].node.ID) != equal &&
+				compareID(info.ID, n.fingers[i].start) != greater) { //TODO: handle init chaos
+
+			if n.fingers[i].node.Successor == nil { //missing successor data
 
 				if isSameNode(n.fingers[i].node, n.info()) {
 					n.fingers[i].node.Successor = n.fingers[0].node
@@ -476,10 +521,12 @@ func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 
 			}
 
+			logger.Debug.Printf("[closestPrecedingFinger] return %d-th finger %v", i, n.fingers[i].node)
 			return n.fingers[i].node, nil
 		}
 	}
 
+	logger.Debug.Print("[closestPrecedingFinger] return itself")
 	return n.info(), nil
 }
 
@@ -550,13 +597,6 @@ func (n *Node) Stabilize() error {
 	}
 
 	logger.Info.Printf("[Stabilize]dial up %s:%s", n.fingers[0].node.IP, n.fingers[0].node.Port)
-	// logger.Debug.Printf("[Stabilize]%s:%s|%s:%s|%v", n.fingers[0].node.IP, n.fingers[0].node.Port, n.IP, n.Port, n.fingers[0].node.IP == n.IP && n.fingers[0].node.Port == n.Port)
-	// if n.fingers[0].node.IP == n.IP && n.fingers[0].node.Port == n.Port {
-
-	// 	logger.Warn.Print("[Stabilize]:try to notify itself")
-	// 	return nil
-	// }
-
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", n.fingers[0].node.IP, n.fingers[0].node.Port), grpc.WithInsecure())
 	if err != nil {
 		return err
@@ -565,6 +605,20 @@ func (n *Node) Stabilize() error {
 	cli := NewNodeClient(conn)
 	_, err = cli.OnNotify(context.Background(), n.info())
 	conn.Close()
+
+	return err
+}
+
+//FixFingers refresh finger
+func (n *Node) FixFingers() error {
+
+	i := randInt(1, n.hashBitL-1) //skip successor
+	logger.Info.Printf("[FixFingers] fix %d-th", i)
+	n.Lock()
+	defer n.Unlock()
+	var err error
+	n.fingers[i].node, err = n.findSuccessor(&NodeInfo{ID: n.fingers[i].start})
+	logger.Info.Printf("[FixFingers] updated %d-th : %v", i, n.fingers[i].node)
 
 	return err
 }

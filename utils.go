@@ -1,6 +1,11 @@
 package chord
 
-import "math"
+import (
+	crand "crypto/rand"
+	"encoding/binary"
+	"math"
+	"math/rand"
+)
 
 const (
 	less = iota
@@ -172,4 +177,19 @@ func isSameNode(a, b *NodeInfo) bool {
 	}
 
 	return false
+}
+
+//randInt return random number in [min , max]
+func randInt(min, max int) int {
+
+	seed := int64(0)
+	binary.Read(crand.Reader, binary.LittleEndian, &seed)
+
+	rand.Seed(seed)
+
+	res := min
+	res = rand.Intn(max-min+1) + min
+
+	return res
+
 }

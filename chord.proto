@@ -16,7 +16,7 @@ service Node{
     rpc Successor(google.protobuf.Empty) returns (NodeInfo){}
     rpc SetSuccessor(NodeInfo) returns (google.protobuf.Empty) {}
 
-    rpc OnJoin(NodeInfo) returns (google.protobuf.Empty) {}
+    // rpc OnJoin(NodeInfo) returns (google.protobuf.Empty) {}
     rpc OnNotify(NodeInfo) returns (google.protobuf.Empty) {}
 
     rpc UpdateFingerTable(UpdateRequest) returns (google.protobuf.Empty){}
