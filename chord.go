@@ -234,7 +234,7 @@ func (n *Node) initFingerTable(info *NodeInfo) error {
 
 		} else {
 
-			n.fingers[i+1].node, err = cli.FindSuccessor(context.Background(), &NodeInfo{
+			n.fingers[i+1].node, err = cli.FindSuccessor(ctx, &NodeInfo{
 				ID: n.fingers[i+1].start,
 			})
 			if err != nil {
@@ -451,7 +451,7 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 	preN := np //store prev node
 	for {
 
-		logger.Debug.Printf("\ninfoID:% x \nnodeTmpID: % x \nsuccessorID: % x \n res:%v", info.ID, np.ID, successor.ID, info.isBetween(np.ID, successor.ID, intervRBounded))
+		logger.Debug.Printf("\ninfoID:% x \nnpID: % x \nsuccessorID: % x \n res:%v", info.ID, np.ID, successor.ID, info.isBetween(np.ID, successor.ID, intervRBounded))
 		if info.isBetween(np.ID, successor.ID, intervRBounded) {
 			break
 		}
@@ -486,8 +486,10 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 			return nil, err
 		}
 
+		logger.Debug.Printf("[findPredecessor]:np:%s", np)
+		logger.Debug.Printf("[findPredecessor]:successor:%s", successor)
 		if compare(np.ID, preN.ID) == equal ||
-			compare(successor.ID, preN.ID) == equal ||
+			// compare(successor.ID, preN.ID) == equal ||
 			compare(np.ID, successor.ID) != less {
 			logger.Warn.Print("[findPredecessor]break dead loop")
 			break
@@ -532,21 +534,6 @@ func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 			(compare(n.fingers[i].node.ID, n.fingers[i].start) == less && //init chaos
 				// compareID(n.ID, n.fingers[i].node.ID) != equal &&
 				compare(info.ID, n.fingers[i].start) != greater) { //TODO: handle init chaos
-
-			// if n.fingers[i].node.Successor == nil { //missing successor data
-
-			// 	if isSameNode(n.fingers[i].node, n.info()) {
-			// 		n.fingers[i].node.Successor = n.fingers[0].node
-
-			// 	} else {
-			// 		var err error
-			// 		n.fingers[i].node.Successor, err = n.fingers[i].node.successor()
-			// 		if err != nil {
-			// 			return nil, err
-			// 		}
-			// 	}
-
-			// }
 
 			logger.Debug.Printf("[closestPrecedingFinger] return %d-th finger %v", i, n.fingers[i].node)
 			return n.fingers[i].node, nil
@@ -603,8 +590,8 @@ func (n *Node) SetSuccessor(ctx context.Context, info *NodeInfo) (*google_protob
 func (n *Node) Stabilize() error {
 
 	logger.Info.Print("Stabilize")
-	n.Lock()
-	defer n.Unlock()
+	n.RLock()
+	defer n.RUnlock()
 
 	if isSameNode(n.fingers[0].node, n.info()) {
 
@@ -619,7 +606,13 @@ func (n *Node) Stabilize() error {
 
 	// sp in (n.ID , n.successor.ID)
 	if sp.isBetween(n.ID, n.fingers[0].node.ID, intervUnbounded) {
+
+		n.RUnlock()
+		n.Lock()
 		n.fingers[0].node = sp
+		n.Unlock()
+		n.RLock()
+
 	}
 
 	conn, err := n.fingers[0].node.dial()
