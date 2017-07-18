@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func Test_subID(t *testing.T) {
+func Test_sub(t *testing.T) {
 	type args struct {
 		ID []byte
 		n  []byte
@@ -24,14 +24,14 @@ func Test_subID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := subID(tt.args.ID, tt.args.n); !reflect.DeepEqual(got, tt.want) {
+			if got := sub(tt.args.ID, tt.args.n); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("subID() = % x, want % x", got, tt.want)
 			}
 		})
 	}
 }
 
-func Test_compareID(t *testing.T) {
+func Test_compare(t *testing.T) {
 	type args struct {
 		a []byte
 		b []byte
@@ -47,14 +47,14 @@ func Test_compareID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := compareID(tt.args.a, tt.args.b); got != tt.want {
+			if got := compare(tt.args.a, tt.args.b); got != tt.want {
 				t.Errorf("compareID() = % x, want % x", got, tt.want)
 			}
 		})
 	}
 }
 
-func Test_addID(t *testing.T) {
+func Test_add(t *testing.T) {
 	type args struct {
 		ID []byte
 		n  []byte
@@ -72,7 +72,7 @@ func Test_addID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := addID(tt.args.ID, tt.args.n); !reflect.DeepEqual(got, tt.want) {
+			if got := add(tt.args.ID, tt.args.n); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("addID() = % x, want % x", got, tt.want)
 			}
 		})
@@ -120,6 +120,34 @@ func Test_mod2(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := mod2(tt.args.n, tt.args.e); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("mod2() = % x, want % x", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_isBetween(t *testing.T) {
+	type args struct {
+		val, start, end []byte
+		intervalType    int
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{"Unbounded#0", args{val: []byte{0x00}, start: []byte{0x00}, end: []byte{0xf0}, intervalType: intervUnbounded}, false},
+		{"Unbounded#1", args{val: []byte{0xf0}, start: []byte{0x00}, end: []byte{0xf0}, intervalType: intervUnbounded}, false},
+		{"L-Bounded#0", args{val: []byte{0xf0}, start: []byte{0x00}, end: []byte{0xf0}, intervalType: intervLBounded}, false},
+		{"L-Bounded#1", args{val: []byte{0x00}, start: []byte{0x00}, end: []byte{0xf0}, intervalType: intervLBounded}, true},
+		{"R-Bounded#0", args{val: []byte{0x00}, start: []byte{0x00}, end: []byte{0xf0}, intervalType: intervRBounded}, false},
+		{"R-Bounded#1", args{val: []byte{0xf0}, start: []byte{0x00}, end: []byte{0xf0}, intervalType: intervRBounded}, true},
+		{"Bounded#0", args{val: []byte{0x00}, start: []byte{0x00}, end: []byte{0xf0}, intervalType: intervBounded}, true},
+		{"Bounded#1", args{val: []byte{0xf0}, start: []byte{0x00}, end: []byte{0xf0}, intervalType: intervBounded}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isBetween(tt.args.val, tt.args.start, tt.args.end, tt.args.intervalType); got != tt.want {
+				t.Errorf("isBetween() = %t, want %t", got, tt.want)
 			}
 		})
 	}

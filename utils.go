@@ -1,6 +1,11 @@
 package chord
 
-import "math"
+import (
+	crand "crypto/rand"
+	"encoding/binary"
+	"math"
+	"math/rand"
+)
 
 const (
 	less = iota
@@ -8,11 +13,11 @@ const (
 	greater
 )
 
-//compareID tells a is less/greater than or euqal to b , both a and b should have the same length
-func compareID(a, b []byte) int {
+//compare tells a is less/greater than or euqal to b , both a and b should have the same length
+func compare(a, b []byte) int {
 
 	if len(a) != len(b) {
-		panic("different length of ID")
+		panic("different in length")
 	}
 
 	for i := range a {
@@ -28,23 +33,23 @@ func compareID(a, b []byte) int {
 	return greater
 }
 
-//subID returns result of ID subtracts n
-//assume ID's length  is bigger than n's
-func subID(ID, n []byte) []byte {
+//sub returns result of val subtracts n
+//assume val's length  is bigger than n's
+func sub(val, n []byte) []byte {
 
-	nLen, idLen := len(n), len(ID)
-	diff := idLen - nLen
+	nLen, valLen := len(n), len(val)
+	diff := valLen - nLen
 	if diff < 0 {
 		panic("overflow")
 	}
 
-	res := make([]byte, idLen)
-	copy(res, ID)
+	res := make([]byte, valLen)
+	copy(res, val)
 
 	flag := byte(0x00)
-	for i := idLen - 1; i >= 0; i-- {
+	for i := valLen - 1; i >= 0; i-- {
 
-		if ID[i] < flag { //ID[i]-flag overflow
+		if val[i] < flag { //val[i]-flag overflow
 			res[i] -= flag
 			flag = 0x00
 			flag++
@@ -75,23 +80,23 @@ func subID(ID, n []byte) []byte {
 	return res
 }
 
-//addID returns result of ID and n
-//assume ID's length  is bigger than n's
-func addID(ID, n []byte) []byte {
+//add returns result of val and n
+//assume val's length  is bigger than n's
+func add(val, n []byte) []byte {
 
-	nLen, idLen := len(n), len(ID)
-	diff := idLen - nLen
+	nLen, valLen := len(n), len(val)
+	diff := valLen - nLen
 	if diff < 0 {
 		panic("overflow")
 	}
 
-	res := make([]byte, idLen)
-	copy(res, ID)
+	res := make([]byte, valLen)
+	copy(res, val)
 
 	flag := byte(0x00)
-	for i := idLen - 1; i >= 0; i-- {
+	for i := valLen - 1; i >= 0; i-- {
 
-		if math.MaxUint8-ID[i] < flag { // ID[i]+flag overflow
+		if math.MaxUint8-val[i] < flag { // val[i]+flag overflow
 			res[i] += flag
 			flag = 0x00
 			flag++
@@ -148,7 +153,7 @@ func mod2(n []byte, e int) []byte {
 	res := make([]byte, len(n))
 	copy(res, n)
 
-	mod := subID(pow2(e), []byte{0x01})
+	mod := sub(pow2(e), []byte{0x01})
 
 	diff := len(n) - len(mod)
 	for i := len(res) - 1; i >= 0; i-- {
@@ -172,4 +177,71 @@ func isSameNode(a, b *NodeInfo) bool {
 	}
 
 	return false
+}
+
+//randInt return random number in [min , max]
+func randInt(min, max int) int {
+
+	seed := int64(0)
+	binary.Read(crand.Reader, binary.LittleEndian, &seed)
+
+	rand.Seed(seed)
+
+	res := min
+	res = rand.Intn(max-min+1) + min
+
+	return res
+
+}
+
+//interval type
+const (
+	//(a , b)
+	intervUnbounded = iota
+	//[a , b)
+	intervLBounded
+	//(a , b]
+	intervRBounded
+	//[a , b]
+	intervBounded
+)
+
+func isBetween(val, start, end []byte, intervalType int) bool {
+
+	switch intervalType {
+	case intervUnbounded: //(a , b)
+		if compare(val, start) == greater && compare(val, end) == less {
+			return true
+		}
+		return false
+	case intervLBounded: //[a , b)
+		if compare(val, start) != less && compare(val, end) == less {
+			return true
+		}
+		return false
+	case intervRBounded: //(a , b]
+
+		// //ring case , start >= end
+		// if compare(start, end) != less {
+		// 	if compare(val, start) != greater && compare(val, end) == greater {
+		// 		return true
+		// 	}
+		// 	return false
+		// }
+
+		// start < end
+		if compare(val, start) == greater && compare(val, end) != greater {
+			return true
+		}
+		return false
+
+	case intervBounded: //[a , b]
+		if compare(val, start) != less && compare(val, end) != greater {
+			return true
+		}
+		return false
+	default:
+		panic("unexpected interval type")
+	}
+
 }
