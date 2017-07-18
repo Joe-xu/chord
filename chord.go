@@ -267,12 +267,16 @@ func (n *Node) updateOthers() error {
 		logger.Info.Printf("[updateOthers]dial up %s:%s", p.IP, p.Port)
 
 		if isSameNode(p, n.info()) {
+
 			logger.Warn.Print("[updateOthers] local rpc")
+			n.RUnlock()
 			err = n.updateFingerTable(n.info(), int32(i))
+			n.RLock()
 			if err != nil {
 				return err
 			}
 			continue
+
 		}
 
 		conn, err := p.dial()
@@ -314,12 +318,16 @@ func updateFingerTableRPC(conn *grpc.ClientConn, req *UpdateRequest) error {
 func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 
 	n.RLock()
+
 	//info.ID in [n.ID , n.fingers[i].node.ID)
+	//NOTE: thought paper said "[n.ID , n.fingers[i].node.ID)" , but n's finger entry
+	//		should not refer to itself unless network-init
+
 	//EXPERIEMNTAL:check n.ID with n.fingers[i].node.ID , in case of init-chaos
 	//if current finger is invaild,init-chaos,we take the newest and vaild one , aka. info.ID >= n.fingers[i].start
 	if (compare(n.ID, n.fingers[i].node.ID) == equal &&
 		compare(info.ID, n.fingers[i].start) != less) || //init case
-		info.isBetween(n.ID, n.fingers[i].node.ID, intervLBounded) {
+		info.isBetween(n.ID, n.fingers[i].node.ID, intervUnbounded) { // checkout NOTE for why intervUnbounded
 
 		n.RUnlock()
 		n.Lock()

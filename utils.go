@@ -210,24 +210,44 @@ func isBetween(val, start, end []byte, intervalType int) bool {
 
 	switch intervalType {
 	case intervUnbounded: //(a , b)
+
+		//ring case , start > end
+		if compare(start, end) == greater {
+			if compare(val, start) == greater || compare(val, end) == less {
+				return true
+			}
+			return false
+		}
+
+		// start < end
 		if compare(val, start) == greater && compare(val, end) == less {
 			return true
 		}
 		return false
 	case intervLBounded: //[a , b)
+
+		//ring case , start > end
+		if compare(start, end) == greater {
+			if compare(val, start) != less || compare(val, end) == less {
+				return true
+			}
+			return false
+		}
+
+		// start < end
 		if compare(val, start) != less && compare(val, end) == less {
 			return true
 		}
 		return false
 	case intervRBounded: //(a , b]
 
-		// //ring case , start >= end
-		// if compare(start, end) != less {
-		// 	if compare(val, start) != greater && compare(val, end) == greater {
-		// 		return true
-		// 	}
-		// 	return false
-		// }
+		//ring case , start > end
+		if compare(start, end) == greater {
+			if compare(val, start) == greater || compare(val, end) != greater {
+				return true
+			}
+			return false
+		}
 
 		// start < end
 		if compare(val, start) == greater && compare(val, end) != greater {
@@ -236,6 +256,16 @@ func isBetween(val, start, end []byte, intervalType int) bool {
 		return false
 
 	case intervBounded: //[a , b]
+
+		//ring case , start > end
+		if compare(start, end) == greater {
+			if compare(val, start) != less || compare(val, end) != greater {
+				return true
+			}
+			return false
+		}
+
+		// start < end
 		if compare(val, start) != less && compare(val, end) != greater {
 			return true
 		}
