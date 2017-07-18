@@ -31,7 +31,7 @@ message NodeInfo{
     bytes       ID=1;
     string      IP=2;
     string      Port=3;
-    NodeInfo    Successor=4;
+    // NodeInfo    Successor=4;
 
 }
 
