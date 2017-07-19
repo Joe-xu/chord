@@ -51,14 +51,14 @@ func NewNode(port string) *Node {
 
 	n.ID = n.hashMethod.Sum([]byte(n.IP + n.Port))
 
-	//DEBUG
-	if port == "50015" {
-		n.ID = []byte{0x01}
-	} else if port == "50016" {
-		n.ID = []byte{0x10}
-	} else if port == "50017" {
-		n.ID = []byte{0x18}
-	}
+	// //DEBUG
+	// if port == "50015" {
+	// 	n.ID = []byte{0x01}
+	// } else if port == "50016" {
+	// 	n.ID = []byte{0x10}
+	// } else if port == "50017" {
+	// 	n.ID = []byte{0x18}
+	// }
 
 	n.hashBitL = len(n.ID) * 8
 	n.ID = mod2(n.ID, n.hashBitL)
@@ -123,22 +123,31 @@ func (n *Node) LogFingerTable() string {
 //Join let n join the network,accept arbitrary node's info as parma
 func (n *Node) Join(info ...*NodeInfo) error {
 
-	// defer fmt.Println(n.fingers) // DEBUG
-
 	if len(info) >= 1 { // join an existing ring
-		//TODO:handle multiple join <<<<<<<<<<<<<<
+
+	JOIN_INIT_FINGERS: //only used in retry
 		err := n.initFingerTable(info[0])
-		if err != nil {
-			return nil
+		if err == context.DeadlineExceeded {
+			logger.Warn.Printf("[Join]initFingerTable: %v", err)
+			goto JOIN_INIT_FINGERS //retry
+		} else if err != nil {
+			return err
 		}
 
-		n.RLock()                                                             // DEBUG
-		logger.Debug.Printf("%s predecessor:%s \n", n.fingers, n.predecessor) // DEBUG
-		n.RUnlock()                                                           // DEBUG
+		// n.RLock()                                                             // DEBUG
+		// logger.Debug.Printf("%s predecessor:%s \n", n.fingers, n.predecessor) // DEBUG
+		// n.RUnlock()                                                           // DEBUG
 
+	JOIN_UPDATE_OTHERS: //only used in retry
 		err = n.updateOthers()
-		//TODO: move keys in (predecessor,n] from successor <<<<<<
-		return err
+		if err == context.DeadlineExceeded {
+			logger.Warn.Printf("[Join]updateOthers: %v", err)
+			goto JOIN_UPDATE_OTHERS //retry
+		} else if err != nil {
+			return err
+		}
+
+		return nil
 	}
 
 	// only n in the network , init a new ring
@@ -216,6 +225,12 @@ func (n *Node) initFingerTable(info *NodeInfo) error {
 	}
 
 	n.predecessor, err = n.fingers[0].node.predecessor()
+	if err != nil {
+		return err
+	}
+
+	//EXPERIEMNTAL
+	err = n.predecessor.setSuccessor(n.info())
 	if err != nil {
 		return err
 	}
@@ -320,14 +335,7 @@ func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 	n.RLock()
 
 	//info.ID in [n.ID , n.fingers[i].node.ID)
-	//NOTE: thought paper said "[n.ID , n.fingers[i].node.ID)" , but n's finger entry
-	//		should not refer to itself unless network-init
-
-	//EXPERIEMNTAL:check n.ID with n.fingers[i].node.ID , in case of init-chaos
-	//if current finger is invaild,init-chaos,we take the newest and vaild one , aka. info.ID >= n.fingers[i].start
-	if (compare(n.ID, n.fingers[i].node.ID) == equal &&
-		compare(info.ID, n.fingers[i].start) != less) || //init case
-		info.isBetween(n.ID, n.fingers[i].node.ID, intervUnbounded) { // checkout NOTE for why intervUnbounded
+	if info.isBetween(n.ID, n.fingers[i].node.ID, intervLBounded) {
 
 		n.RUnlock()
 		n.Lock()
