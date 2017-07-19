@@ -13,11 +13,8 @@
 package chord
 
 import (
-	"crypto/md5"
-	"fmt"
 	"hash"
 	"net"
-	"strings"
 	"sync"
 
 	"github.com/Joe-xu/logger"
@@ -29,13 +26,13 @@ import (
 
 //Node prototype on the chord ring
 type Node struct {
-	IP   string
-	Port string
+	id   []byte
+	addr string
 
-	ID         []byte
+	config *Config
+
 	hashMethod hash.Hash
 	hashBitL   int //length of ID in bit
-	// Value      interface{}
 
 	sync.RWMutex             //mutex for following field
 	fingers      fingerTable //fingers[0].node == successor
@@ -43,31 +40,35 @@ type Node struct {
 }
 
 //NewNode init and return new node
-func NewNode(port string) *Node {
+func NewNode(config *Config) *Node {
+
+	rpcTimeout = config.Timeout
+
 	n := &Node{
-		Port:       port,
-		hashMethod: md5.New(),
+		config:     config,
+		addr:       config.Listener.Addr().String(),
+		hashMethod: config.HashMethod,
 	}
 
-	n.ID = n.hashMethod.Sum([]byte(n.IP + n.Port))
+	n.id = n.hashMethod.Sum([]byte(n.addr))
 
-	//DEBUG
-	if port == "50015" {
-		n.ID = []byte{0x01}
-	} else if port == "50016" {
-		n.ID = []byte{0x10}
-	} else if port == "50017" {
-		n.ID = []byte{0x18}
-	}
+	// //DEBUG
+	// if port == "50015" {
+	// 	n.ID = []byte{0x01}
+	// } else if port == "50016" {
+	// 	n.ID = []byte{0x10}
+	// } else if port == "50017" {
+	// 	n.ID = []byte{0x18}
+	// }
 
-	n.hashBitL = len(n.ID) * 8
-	n.ID = mod2(n.ID, n.hashBitL)
+	n.hashBitL = len(n.id) * 8
+	n.id = mod2(n.id, n.hashBitL)
 
 	n.fingers = make([]*finger, n.hashBitL)
 
 	for i := range n.fingers {
 		n.fingers[i] = &finger{
-			start: mod2(add(n.ID, pow2(i)), n.hashBitL),
+			start: mod2(add(n.id, pow2(i)), n.hashBitL),
 		}
 
 	}
@@ -83,62 +84,85 @@ func (n *Node) Info() *NodeInfo {
 	return n.info()
 }
 
-//
+//return node's info
 func (n *Node) info() *NodeInfo {
 
 	return &NodeInfo{
-		ID:   n.ID,
-		IP:   n.IP,
-		Port: n.Port,
+		ID:   n.id,
+		Addr: n.addr,
 	}
 }
 
-//Serve makes node listen on the port of the spec network type
-func (n *Node) Serve(network string, port string) error {
+//ID return node's id
+func (n *Node) ID() []byte {
+	return n.id
+}
 
-	if !strings.HasPrefix(port, ":") {
-		port = ":" + port
-	}
+//Addr return node's addr
+func (n *Node) Addr() string {
+	return n.addr
+}
 
-	listener, err := net.Listen(network, port)
-	if err != nil {
-		return err
+//JoinAndServer makes node join and listen on the ring
+func (n *Node) JoinAndServer() error {
+
+	errCh := make(chan error, 0)
+
+	go func() {
+		errCh <- n.serve(n.config.Listener)
+		// close(errCh)
+	}()
+
+	go func() {
+		errCh <- n.join(n.config.Introducer)
+	}()
+
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+//serve makes node listen on the ring
+func (n *Node) serve(listener net.Listener) error {
 
 	rpcServer := grpc.NewServer()
 	RegisterNodeServer(rpcServer, n)
 	reflection.Register(rpcServer)
-	err = rpcServer.Serve(listener)
+	return rpcServer.Serve(listener)
 
-	return err
 }
 
-// DEBUG
-func (n *Node) LogFingerTable() string {
-	n.RLock()
-	defer n.RUnlock()
-	return fmt.Sprintf("=====\n\n%s \npredecessor:%s\n====\n\n", n.fingers, n.predecessor)
-}
+//join let n join the network,accept arbitrary node's info as parma
+func (n *Node) join(introducer *NodeInfo) error {
 
-//Join let n join the network,accept arbitrary node's info as parma
-func (n *Node) Join(info ...*NodeInfo) error {
+	if introducer != nil { // join an existing ring
 
-	// defer fmt.Println(n.fingers) // DEBUG
-
-	if len(info) >= 1 { // join an existing ring
-		//TODO:handle multiple join <<<<<<<<<<<<<<
-		err := n.initFingerTable(info[0])
-		if err != nil {
-			return nil
+	JOIN_INIT_FINGERS: //only used in retry
+		err := n.initFingerTable(introducer)
+		if err == context.DeadlineExceeded {
+			logger.Warn.Printf("[Join]initFingerTable: %v", err)
+			goto JOIN_INIT_FINGERS //retry
+		} else if err != nil {
+			return err
 		}
 
-		n.RLock()                                                             // DEBUG
-		logger.Debug.Printf("%s predecessor:%s \n", n.fingers, n.predecessor) // DEBUG
-		n.RUnlock()                                                           // DEBUG
+		// n.RLock()                                                             // DEBUG
+		// logger.Debug.Printf("%s predecessor:%s \n", n.fingers, n.predecessor) // DEBUG
+		// n.RUnlock()                                                           // DEBUG
 
+	JOIN_UPDATE_OTHERS: //only used in retry
 		err = n.updateOthers()
-		//TODO: move keys in (predecessor,n] from successor <<<<<<
-		return err
+		if err == context.DeadlineExceeded {
+			logger.Warn.Printf("[Join]updateOthers: %v", err)
+			goto JOIN_UPDATE_OTHERS //retry
+		} else if err != nil {
+			return err
+		}
+
+		return nil
 	}
 
 	// only n in the network , init a new ring
@@ -153,44 +177,6 @@ func (n *Node) Join(info ...*NodeInfo) error {
 	return nil
 
 }
-
-/* //Join let n join the network,accept arbitrary node's info as parma
-func (n *Node) Join(info ...*NodeInfo) error {
-
-	// defer fmt.Println(n.fingers) // DEBUG
-	n.Lock()
-	defer n.Unlock()
-
-	for i := range n.fingers {
-		n.fingers[i].node = n.info()
-	}
-	if len(info) >= 1 { //TODO:handle multiple join <<<<<<<<<<<<<<
-
-		logger.Info.Printf("[initFingerTable]dial up %s:%s", info[0].IP, info[0].Port)
-		conn, err := grpc.Dial(fmt.Sprintf("%s:%s", info[0].IP, info[0].Port), grpc.WithInsecure())
-		if err != nil {
-			return err
-		}
-		defer conn.Close()
-
-		cli := NewNodeClient(conn)
-		n.fingers[0].node, err = cli.FindSuccessor(context.Background(), n.info())
-		n.fingers[0].node.Successor = nil //clean off useless data
-		n.predecessor = nil
-
-		return err
-	}
-	// only n in the network
-	// for i := range n.fingers {
-	// 	n.fingers[i].node = n.info()
-	// }
-	n.fingers[0].node = n.info()      //patch
-	n.fingers[0].node.Successor = nil //clean off useless data
-	n.predecessor = n.info()
-
-	return nil
-
-} */
 
 //initFingerTable init node local finger table
 func (n *Node) initFingerTable(info *NodeInfo) error {
@@ -220,6 +206,12 @@ func (n *Node) initFingerTable(info *NodeInfo) error {
 		return err
 	}
 
+	//EXPERIEMNTAL
+	err = n.predecessor.setSuccessor(n.info())
+	if err != nil {
+		return err
+	}
+
 	err = n.fingers[0].node.setPredecessor(n.info())
 	if err != nil {
 		return err
@@ -228,13 +220,13 @@ func (n *Node) initFingerTable(info *NodeInfo) error {
 	for i := 0; i < len(n.fingers)-1; i++ {
 
 		// finger[i+1].start in [n.ID , n.fingers[i].node.ID)
-		if isBetween(n.fingers[i+1].start, n.ID, n.fingers[i].node.ID, intervLBounded) {
+		if isBetween(n.fingers[i+1].start, n.id, n.fingers[i].node.ID, intervLBounded) {
 
 			n.fingers[i+1].node = n.fingers[i].node
 
 		} else {
 
-			n.fingers[i+1].node, err = cli.FindSuccessor(context.Background(), &NodeInfo{
+			n.fingers[i+1].node, err = cli.FindSuccessor(ctx, &NodeInfo{
 				ID: n.fingers[i+1].start,
 			})
 			if err != nil {
@@ -255,24 +247,28 @@ func (n *Node) updateOthers() error {
 	defer n.RUnlock()
 	for i := range n.fingers {
 		logger.Debug.Printf("===================== %d", i)
-		logger.Debug.Printf("[updateOthers]findPredecessor %d:ID:% x", i, mod2(sub(n.ID, pow2(i)), n.hashBitL))
+		logger.Debug.Printf("[updateOthers]findPredecessor %d:ID:% x", i, mod2(sub(n.id, pow2(i)), n.hashBitL))
 		p, err := n.findPredecessor(&NodeInfo{
-			ID: mod2(sub(n.ID, pow2(i)), n.hashBitL),
+			ID: mod2(sub(n.id, pow2(i)), n.hashBitL),
 		})
 		logger.Debug.Printf("[updateOthers]findPredecessor:got:%v", p)
 		if err != nil {
 			return err
 		}
 
-		logger.Info.Printf("[updateOthers]dial up %s:%s", p.IP, p.Port)
+		logger.Info.Printf("[updateOthers]dial up %s", p.Addr)
 
 		if isSameNode(p, n.info()) {
+
 			logger.Warn.Print("[updateOthers] local rpc")
+			n.RUnlock()
 			err = n.updateFingerTable(n.info(), int32(i))
+			n.RLock()
 			if err != nil {
 				return err
 			}
 			continue
+
 		}
 
 		conn, err := p.dial()
@@ -314,12 +310,9 @@ func updateFingerTableRPC(conn *grpc.ClientConn, req *UpdateRequest) error {
 func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 
 	n.RLock()
+
 	//info.ID in [n.ID , n.fingers[i].node.ID)
-	//EXPERIEMNTAL:check n.ID with n.fingers[i].node.ID , in case of init-chaos
-	//if current finger is invaild,init-chaos,we take the newest and vaild one , aka. info.ID >= n.fingers[i].start
-	if (compare(n.ID, n.fingers[i].node.ID) == equal &&
-		compare(info.ID, n.fingers[i].start) != less) || //init case
-		info.isBetween(n.ID, n.fingers[i].node.ID, intervLBounded) {
+	if info.isBetween(n.id, n.fingers[i].node.ID, intervLBounded) {
 
 		n.RUnlock()
 		n.Lock()
@@ -382,7 +375,7 @@ func (n *Node) onNotify(info *NodeInfo) error {
 
 	n.RLock()
 	// predecessor == nil or info.ID in (n.predecessor.ID , n.ID)
-	if n.predecessor == nil || info.isBetween(n.predecessor.ID, n.ID, intervUnbounded) {
+	if n.predecessor == nil || info.isBetween(n.predecessor.ID, n.id, intervUnbounded) {
 
 		n.RUnlock()
 		n.Lock()
@@ -451,7 +444,7 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 	preN := np //store prev node
 	for {
 
-		logger.Debug.Printf("\ninfoID:% x \nnodeTmpID: % x \nsuccessorID: % x \n res:%v", info.ID, np.ID, successor.ID, info.isBetween(np.ID, successor.ID, intervRBounded))
+		logger.Debug.Printf("\ninfoID:% x \nnpID: % x \nsuccessorID: % x \n res:%v", info.ID, np.ID, successor.ID, info.isBetween(np.ID, successor.ID, intervRBounded))
 		if info.isBetween(np.ID, successor.ID, intervRBounded) {
 			break
 		}
@@ -486,8 +479,10 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 			return nil, err
 		}
 
+		logger.Debug.Printf("[findPredecessor]:np:%s", np)
+		logger.Debug.Printf("[findPredecessor]:successor:%s", successor)
 		if compare(np.ID, preN.ID) == equal ||
-			compare(successor.ID, preN.ID) == equal ||
+			// compare(successor.ID, preN.ID) == equal ||
 			compare(np.ID, successor.ID) != less {
 			logger.Warn.Print("[findPredecessor]break dead loop")
 			break
@@ -516,37 +511,12 @@ func closestPrecedingFingerRPC(conn *grpc.ClientConn, info *NodeInfo) (*NodeInfo
 // closestPrecedingFinger [local invoke]
 func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 
-	logger.Debug.Print("[closestPrecedingFinger]:enter")
-	defer func() {
-		logger.Debug.Print("[closestPrecedingFinger]:exit")
-	}()
-
-	logger.Debug.Print("[closestPrecedingFinger]: start loop")
 	n.RLock()
 	defer n.RUnlock()
 	for i := len(n.fingers) - 1; i >= 0; i-- {
 
 		//n.fingers[i].node.ID in (n.ID,info.ID)
-		//EXPERIEMNTAL:check n.fingers[i].node.ID with n.fingers[i].start , in case of init chaos
-		if n.fingers[i].node.isBetween(n.ID, info.ID, intervUnbounded) ||
-			(compare(n.fingers[i].node.ID, n.fingers[i].start) == less && //init chaos
-				// compareID(n.ID, n.fingers[i].node.ID) != equal &&
-				compare(info.ID, n.fingers[i].start) != greater) { //TODO: handle init chaos
-
-			// if n.fingers[i].node.Successor == nil { //missing successor data
-
-			// 	if isSameNode(n.fingers[i].node, n.info()) {
-			// 		n.fingers[i].node.Successor = n.fingers[0].node
-
-			// 	} else {
-			// 		var err error
-			// 		n.fingers[i].node.Successor, err = n.fingers[i].node.successor()
-			// 		if err != nil {
-			// 			return nil, err
-			// 		}
-			// 	}
-
-			// }
+		if n.fingers[i].node.isBetween(n.id, info.ID, intervUnbounded) {
 
 			logger.Debug.Printf("[closestPrecedingFinger] return %d-th finger %v", i, n.fingers[i].node)
 			return n.fingers[i].node, nil
@@ -603,8 +573,8 @@ func (n *Node) SetSuccessor(ctx context.Context, info *NodeInfo) (*google_protob
 func (n *Node) Stabilize() error {
 
 	logger.Info.Print("Stabilize")
-	n.Lock()
-	defer n.Unlock()
+	n.RLock()
+	defer n.RUnlock()
 
 	if isSameNode(n.fingers[0].node, n.info()) {
 
@@ -618,8 +588,14 @@ func (n *Node) Stabilize() error {
 	}
 
 	// sp in (n.ID , n.successor.ID)
-	if sp.isBetween(n.ID, n.fingers[0].node.ID, intervUnbounded) {
+	if sp.isBetween(n.id, n.fingers[0].node.ID, intervUnbounded) {
+
+		n.RUnlock()
+		n.Lock()
 		n.fingers[0].node = sp
+		n.Unlock()
+		n.RLock()
+
 	}
 
 	conn, err := n.fingers[0].node.dial()

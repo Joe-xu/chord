@@ -1,8 +1,6 @@
 package chord
 
 import (
-	"fmt"
-
 	"github.com/Joe-xu/logger"
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
@@ -24,8 +22,8 @@ func (ni *NodeInfo) isBetween(start, end []byte, intervalType int) bool {
 
 func (ni *NodeInfo) dial() (*grpc.ClientConn, error) {
 
-	logger.Info.Printf("[dial]: %s:%s", ni.IP, ni.Port)
-	return grpc.Dial(fmt.Sprintf("%s:%s", ni.IP, ni.Port), grpc.WithInsecure())
+	logger.Info.Printf("[dial]: %s", ni.Addr)
+	return grpc.Dial(ni.Addr, grpc.WithInsecure())
 
 }
 
