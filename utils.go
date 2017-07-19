@@ -172,7 +172,7 @@ func mod2(n []byte, e int) []byte {
 //isSameNode tell if a and b is the same node
 func isSameNode(a, b *NodeInfo) bool {
 
-	if a.IP == b.IP && a.Port == b.Port { //do not check ID now
+	if a.Addr == b.Addr { //do not check ID now
 		return true
 	}
 
