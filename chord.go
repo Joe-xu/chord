@@ -526,22 +526,12 @@ func closestPrecedingFingerRPC(conn *grpc.ClientConn, info *NodeInfo) (*NodeInfo
 // closestPrecedingFinger [local invoke]
 func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 
-	logger.Debug.Print("[closestPrecedingFinger]:enter")
-	defer func() {
-		logger.Debug.Print("[closestPrecedingFinger]:exit")
-	}()
-
-	logger.Debug.Print("[closestPrecedingFinger]: start loop")
 	n.RLock()
 	defer n.RUnlock()
 	for i := len(n.fingers) - 1; i >= 0; i-- {
 
 		//n.fingers[i].node.ID in (n.ID,info.ID)
-		//EXPERIEMNTAL:check n.fingers[i].node.ID with n.fingers[i].start , in case of init chaos
-		if n.fingers[i].node.isBetween(n.ID, info.ID, intervUnbounded) ||
-			(compare(n.fingers[i].node.ID, n.fingers[i].start) == less && //init chaos
-				// compareID(n.ID, n.fingers[i].node.ID) != equal &&
-				compare(info.ID, n.fingers[i].start) != greater) { //TODO: handle init chaos
+		if n.fingers[i].node.isBetween(n.ID, info.ID, intervUnbounded) {
 
 			logger.Debug.Printf("[closestPrecedingFinger] return %d-th finger %v", i, n.fingers[i].node)
 			return n.fingers[i].node, nil
