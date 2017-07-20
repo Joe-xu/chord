@@ -12,7 +12,7 @@ package chord
 
 //Ring is prototype of chord ring
 type Ring struct {
-	Intorducer *NodeInfo //could be arbitrary node in one ring
+	Introducer *NodeInfo //could be arbitrary node in one ring
 	Config     *Config
 }
 
@@ -20,7 +20,7 @@ type Ring struct {
 func JoinRing(config *Config) *Ring {
 
 	return &Ring{
-		Intorducer: config.Introducer,
+		Introducer: config.Introducer,
 		Config:     config,
 	}
 }
@@ -28,11 +28,16 @@ func JoinRing(config *Config) *Ring {
 //Locate returns the node-info where key is store
 func (r *Ring) Locate(key string) (*NodeInfo, error) {
 
-	conn, err := r.Intorducer.dial()
+	conn, err := r.Introducer.dial()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	return findSuccessorRPC(conn, &NodeInfo{ID: nil})
+	target := &NodeInfo{
+		ID: r.Config.HashMethod.Sum([]byte(key)),
+	}
+	target.ID = mod2(target.ID, len(target.ID)*8)
+
+	return findSuccessorRPC(conn, target)
 }
