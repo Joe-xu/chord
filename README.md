@@ -71,7 +71,7 @@
 
 ## Build
 
-[protocol-buffers](1) is required
+[protocol-buffers][1] is required
 
 ```sh
 >go generate
@@ -82,4 +82,4 @@
 
 * [Chord: A Scalable Peer-to-peer Lookup Service for Internet Applications](https://pdos.csail.mit.edu/6.824/papers/stoica-chord.pdf)
 
-[1]:(https://github.com/golang/protobuf) "Go support for Protocol Buffers"
+[1]:https://github.com/golang/protobuf "Go support for Protocol Buffers"
