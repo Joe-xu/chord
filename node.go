@@ -17,6 +17,8 @@ import (
 	"net"
 	"sync"
 
+	"time"
+
 	"github.com/Joe-xu/logger"
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
@@ -53,12 +55,12 @@ func NewNode(config *Config) *Node {
 	n.id = n.hashMethod.Sum([]byte(n.addr))
 
 	// //DEBUG
-	// if port == "50015" {
-	// 	n.ID = []byte{0x01}
-	// } else if port == "50016" {
-	// 	n.ID = []byte{0x10}
-	// } else if port == "50017" {
-	// 	n.ID = []byte{0x18}
+	// if n.addr == "[::]:50015" {
+	// 	n.id = []byte{0x41}
+	// } else if n.addr == "[::]:50016" {
+	// 	n.id = []byte{0x51}
+	// } else if n.addr == "[::]:50017" {
+	// 	n.id = []byte{0x67}
 	// }
 
 	n.hashBitL = len(n.id) * 8
@@ -76,6 +78,12 @@ func NewNode(config *Config) *Node {
 	logger.Debug.Println(n.fingers) // DEBUG
 
 	return n
+}
+
+func (n *Node) log() { //DEBUG
+	n.RLock()
+	logger.Debug.Printf("\nfingers:\n%spredecessor:%v", n.fingers, n.predecessor)
+	n.RUnlock()
 }
 
 //Info return node's info
@@ -103,8 +111,8 @@ func (n *Node) Addr() string {
 	return n.addr
 }
 
-//JoinAndServer makes node join and listen on the ring
-func (n *Node) JoinAndServer() error {
+//JoinAndServe makes node join and listen on the ring
+func (n *Node) JoinAndServe() error {
 
 	errCh := make(chan error, 0)
 
@@ -115,6 +123,7 @@ func (n *Node) JoinAndServer() error {
 
 	go func() {
 		errCh <- n.join(n.config.Introducer)
+		errCh <- n.schedule()
 	}()
 
 	for err := range errCh {
@@ -123,6 +132,43 @@ func (n *Node) JoinAndServer() error {
 		}
 	}
 	return nil
+}
+
+//schedule stabilize and fix fingers task
+func (n *Node) schedule() error {
+
+	var stabilizeTimer, fixFingersTimer *time.Ticker
+
+	if n.config.StabilizeInterval > 0*time.Second {
+		stabilizeTimer = time.NewTicker(n.config.StabilizeInterval)
+	} else {
+		stabilizeTimer = time.NewTicker(defaultStabilizeInterval)
+	}
+
+	if n.config.FixFingersInterval > 0*time.Second {
+		fixFingersTimer = time.NewTicker(n.config.FixFingersInterval)
+	} else {
+		fixFingersTimer = time.NewTicker(defaultFixFingersInterval)
+	}
+
+	for {
+		select {
+		case <-stabilizeTimer.C:
+			err := n.Stabilize()
+			if err != nil {
+				return err
+			}
+
+		case <-fixFingersTimer.C:
+
+			err := n.FixFingers()
+			if err != nil {
+				return err
+			}
+		}
+		n.log() //DEBUG
+	}
+
 }
 
 //serve makes node listen on the ring
