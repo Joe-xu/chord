@@ -10,34 +10,51 @@
 //https://pdos.csail.mit.edu/6.824/papers/stoica-chord.pdf
 package chord
 
+import (
+	"github.com/Joe-xu/logger"
+	"google.golang.org/grpc"
+)
+
 //Ring is prototype of chord ring
 type Ring struct {
-	Introducer *NodeInfo //could be arbitrary node in one ring
-	Config     *Config
+	Config *Config
+
+	introducer *NodeInfo //could be arbitrary node in one ring
+	conn       *grpc.ClientConn
 }
 
 //JoinRing join existing ring
-func JoinRing(config *Config) *Ring {
+func JoinRing(config *Config) (*Ring, error) {
 
-	return &Ring{
-		Introducer: config.Introducer,
+	r := &Ring{
 		Config:     config,
+		introducer: config.Introducer,
 	}
+
+	conn, err := r.introducer.dial()
+	if err != nil {
+		return nil, err
+	}
+	r.conn = conn
+
+	return r, nil
 }
 
 //Locate returns the node-info where key is store
 func (r *Ring) Locate(key string) (*NodeInfo, error) {
-
-	conn, err := r.Introducer.dial()
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
 
 	target := &NodeInfo{
 		ID: r.Config.HashMethod.Sum([]byte(key)),
 	}
 	target.ID = mod2(target.ID, len(target.ID)*8)
 
-	return findSuccessorRPC(conn, target)
+	// target.ID = []byte(key) //DEBUG
+	logger.Debug.Printf("Locate:% x", target.ID)
+
+	return findSuccessorRPC(r.conn, target)
+}
+
+//Leave the ring
+func (r *Ring) Leave() {
+	r.conn.Close()
 }

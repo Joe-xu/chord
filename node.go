@@ -54,14 +54,14 @@ func NewNode(config *Config) *Node {
 
 	n.id = n.hashMethod.Sum([]byte(n.addr))
 
-	//DEBUG
-	if n.addr == "[::]:50015" {
-		n.id = []byte{0x01}
-	} else if n.addr == "[::]:50016" {
-		n.id = []byte{0x10}
-	} else if n.addr == "[::]:50017" {
-		n.id = []byte{0x18}
-	}
+	// //DEBUG
+	// if n.addr == "[::]:50015" {
+	// 	n.id = []byte{0x41}
+	// } else if n.addr == "[::]:50016" {
+	// 	n.id = []byte{0x51}
+	// } else if n.addr == "[::]:50017" {
+	// 	n.id = []byte{0x67}
+	// }
 
 	n.hashBitL = len(n.id) * 8
 	n.id = mod2(n.id, n.hashBitL)
