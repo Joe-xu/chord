@@ -1,5 +1,7 @@
 # implementation of Chord protocol
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/Joe-xu/chord)](https://goreportcard.com/report/github.com/Joe-xu/chord)
+
 :construction:
 
 ## Usage
@@ -8,65 +10,65 @@
 1. Init a Chord ring
 
 ```go
-	li, err := net.Listen("tcp", ":50015")
-	if err != nil {
-		log.Fatal(err)
-	}
+li, err := net.Listen("tcp", ":50015")
+if err != nil {
+	log.Fatal(err)
+}
 
-	n := chord.NewNode(&chord.Config{
-		HashMethod: md5.New(),
-		Listener:   li,
-		Timeout:    5 * time.Second,
-	})
+n := chord.NewNode(&chord.Config{
+	HashMethod: md5.New(),
+	Listener:   li,
+	Timeout:    5 * time.Second,
+})
 
-	err = n.JoinAndServe()
-	if err != nil {
-		log.Fatal(err)
-	}
+err = n.JoinAndServe()
+if err != nil {
+	log.Fatal(err)
+}
 ```
 
 2. Join the Ring
 
 ```go
-	li, err := net.Listen("tcp", ":50016")
-	if err != nil {
-		log.Fatal(err)
-	}
+li, err := net.Listen("tcp", ":50016")
+if err != nil {
+	log.Fatal(err)
+}
 
-	n := chord.NewNode(&chord.Config{
-		HashMethod: md5.New(),
-		Listener:   li,
-		Timeout:    5 * time.Second,
-		Introducer: &chord.NodeInfo{
-			Addr: "localhost:50015", //node on the existing ring
-		},
-	})
+n := chord.NewNode(&chord.Config{
+	HashMethod: md5.New(),
+	Listener:   li,
+	Timeout:    5 * time.Second,
+	Introducer: &chord.NodeInfo{
+		Addr: "localhost:50015", //node on the existing ring
+	},
+})
 
-	err = n.JoinAndServe()
-	if err != nil {
-		log.Fatal(err)
-	}
+err = n.JoinAndServe()
+if err != nil {
+	log.Fatal(err)
+}
 ```
 
 3. Locate
 
 ```go
-	r, err := chord.JoinRing(&chord.Config{
-		Introducer: &chord.NodeInfo{
-			Addr: ":50016",
-		},
-		HashMethod: md5.New(),
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer r.Leave()
+r, err := chord.JoinRing(&chord.Config{
+	Introducer: &chord.NodeInfo{
+		Addr: ":50016",
+	},
+	HashMethod: md5.New(),
+})
+if err != nil {
+	log.Fatal(err)
+}
+defer r.Leave()
 
-	nodeInfo, err := r.Locate("foo.jpg")
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(nodeInfo)
+nodeInfo, err := r.Locate("foo.jpg")
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(nodeInfo)
 ```
 
 ## Build
