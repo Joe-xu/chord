@@ -1,7 +1,9 @@
 package chord
 
 import (
-	"github.com/Joe-xu/logger"
+	"github.com/Joe-xu/glog"
+	"github.com/bitly/go-simplejson"
+
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -22,7 +24,7 @@ func (ni *NodeInfo) isBetween(start, end []byte, intervalType int) bool {
 
 func (ni *NodeInfo) dial() (*grpc.ClientConn, error) {
 
-	logger.Info.Printf("[dial]: %s", ni.Addr)
+	glog.Infof("[dial]: %s", ni.Addr)
 	return grpc.Dial(ni.Addr, grpc.WithInsecure())
 
 }
@@ -30,7 +32,7 @@ func (ni *NodeInfo) dial() (*grpc.ClientConn, error) {
 //get predecessor [rpc]
 func (ni *NodeInfo) predecessor() (*NodeInfo, error) {
 
-	logger.Info.Print("[predecessor]")
+	glog.Infoln("[predecessor]")
 	conn, err := ni.dial()
 	if err != nil {
 		return nil, err
@@ -46,7 +48,7 @@ func (ni *NodeInfo) predecessor() (*NodeInfo, error) {
 //set Predecessor [rpc]
 func (ni *NodeInfo) setPredecessor(info *NodeInfo) error {
 
-	logger.Info.Print("[setPredecessor]")
+	glog.Infof("[setPredecessor]")
 	conn, err := ni.dial()
 	if err != nil {
 		return err
@@ -62,7 +64,7 @@ func (ni *NodeInfo) setPredecessor(info *NodeInfo) error {
 //get successor [rpc]
 func (ni *NodeInfo) successor() (*NodeInfo, error) {
 
-	logger.Info.Print("[successor]")
+	glog.Infoln("[successor]")
 	conn, err := ni.dial()
 	if err != nil {
 		return nil, err
@@ -78,7 +80,7 @@ func (ni *NodeInfo) successor() (*NodeInfo, error) {
 //set Successor  [rpc]
 func (ni *NodeInfo) setSuccessor(info *NodeInfo) error {
 
-	logger.Info.Print("[setSuccessor]")
+	glog.Infoln("[setSuccessor]")
 	conn, err := ni.dial()
 	if err != nil {
 		return err
@@ -89,4 +91,14 @@ func (ni *NodeInfo) setSuccessor(info *NodeInfo) error {
 	ctx, _ := context.WithTimeout(context.TODO(), rpcTimeout)
 	_, err = cli.SetSuccessor(ctx, info)
 	return err
+}
+
+func (ni *NodeInfo) json() *simplejson.Json {
+
+	j := simplejson.New()
+
+	j.Set("addr", ni.Addr)
+	j.Set("id", ni.ID)
+
+	return j
 }

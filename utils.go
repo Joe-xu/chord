@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"math"
 	"math/rand"
+
+	"github.com/Joe-xu/glog"
 )
 
 const (
@@ -17,6 +19,7 @@ const (
 func compare(a, b []byte) int {
 
 	if len(a) != len(b) {
+		glog.Errorf("\n\t%d-<%x>\n\t%d-<%x>", len(a), a, len(b), b)
 		panic("different in length")
 	}
 
@@ -120,9 +123,10 @@ func add(val, n []byte) []byte {
 
 	}
 
-	if flag != 0x00 {
-		panic("overflow")
-	}
+	// IGNORE
+	// if flag != 0x00 {
+	// 	panic("overflow")
+	// }
 
 	return res
 }
@@ -146,7 +150,7 @@ func min(a, b int) int {
 }
 
 //mod2 return result of n mod 2^e in byte
-//		n mod 2^e = n & ( 1<<k- 1 )
+//		n mod 2^e = n & ( 1<<e- 1 )
 //assume n's length in bit is bigger than 2^e's
 func mod2(n []byte, e int) []byte {
 

@@ -11,7 +11,10 @@
 package chord
 
 import (
-	"github.com/Joe-xu/logger"
+	"crypto/md5"
+
+	"github.com/Joe-xu/glog"
+
 	"google.golang.org/grpc"
 )
 
@@ -43,13 +46,14 @@ func JoinRing(config *Config) (*Ring, error) {
 //Locate returns the node-info where key is store
 func (r *Ring) Locate(key string) (*NodeInfo, error) {
 
+	id := md5.Sum([]byte(key))
 	target := &NodeInfo{
-		ID: r.Config.HashMethod.Sum([]byte(key)),
+		ID: id[:],
 	}
+
 	target.ID = mod2(target.ID, len(target.ID)*8)
 
-	// target.ID = []byte(key) //DEBUG
-	logger.Debug.Printf("Locate:% x", target.ID)
+	glog.Infof("Locate:% x", target.ID)
 
 	return findSuccessorRPC(r.conn, target)
 }

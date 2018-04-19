@@ -8,6 +8,8 @@ import "google/protobuf/empty.proto";
 // node definition region
 service Node{
 
+    rpc Metadata(google.protobuf.Empty) returns (NodeInfo){}
+
     //get and set node's predecessor
     rpc Predecessor(google.protobuf.Empty) returns (NodeInfo){}
     rpc SetPredecessor(NodeInfo) returns (google.protobuf.Empty) {}
@@ -30,6 +32,7 @@ service Node{
 message NodeInfo{
     bytes       ID=1;
     string      Addr=2;
+    string      HttpPort=3;
 
 }
 

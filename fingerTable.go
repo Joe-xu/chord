@@ -1,9 +1,8 @@
 package chord
 
 import (
-	"fmt"
-
 	"bytes"
+	"fmt"
 )
 
 type fingerTable []*finger

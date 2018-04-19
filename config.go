@@ -1,7 +1,6 @@
 package chord
 
 import (
-	"hash"
 	"net"
 	"time"
 )
@@ -20,8 +19,8 @@ var (
 
 //Config for ring
 type Config struct {
+	HttpPort           string        // http api service port
 	Timeout            time.Duration //rpc timeout
-	HashMethod         hash.Hash     //to generate the ID
 	Introducer         *NodeInfo     ///could be arbitrary node in one ring
 	Listener           net.Listener  //Listener for rpc server
 	StabilizeInterval  time.Duration //periodically excute Stabilize

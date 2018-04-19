@@ -13,13 +13,13 @@
 package chord
 
 import (
-	"hash"
+	"crypto/md5"
 	"net"
 	"sync"
-
 	"time"
 
-	"github.com/Joe-xu/logger"
+	"github.com/Joe-xu/glog"
+
 	google_protobuf "github.com/golang/protobuf/ptypes/empty"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -33,8 +33,9 @@ type Node struct {
 
 	config *Config
 
-	hashMethod hash.Hash
-	hashBitL   int //length of ID in bit
+	hashBitL int //length of ID in bit
+
+	store storage
 
 	sync.RWMutex             //mutex for following field
 	fingers      fingerTable //fingers[0].node == successor
@@ -47,21 +48,12 @@ func NewNode(config *Config) *Node {
 	rpcTimeout = config.Timeout
 
 	n := &Node{
-		config:     config,
-		addr:       config.Listener.Addr().String(),
-		hashMethod: config.HashMethod,
+		config: config,
+		addr:   config.Listener.Addr().String(),
 	}
 
-	n.id = n.hashMethod.Sum([]byte(n.addr))
-
-	// //DEBUG
-	// if n.addr == "[::]:50015" {
-	// 	n.id = []byte{0x41}
-	// } else if n.addr == "[::]:50016" {
-	// 	n.id = []byte{0x51}
-	// } else if n.addr == "[::]:50017" {
-	// 	n.id = []byte{0x67}
-	// }
+	id := md5.Sum([]byte(n.addr))
+	n.id = id[:]
 
 	n.hashBitL = len(n.id) * 8
 	n.id = mod2(n.id, n.hashBitL)
@@ -75,15 +67,9 @@ func NewNode(config *Config) *Node {
 
 	}
 
-	logger.Debug.Println(n.fingers) // DEBUG
+	glog.V(3).Infoln(n.fingers)
 
 	return n
-}
-
-func (n *Node) log() { //DEBUG
-	n.RLock()
-	logger.Debug.Printf("\nfingers:\n%spredecessor:%v", n.fingers, n.predecessor)
-	n.RUnlock()
 }
 
 //Info return node's info
@@ -96,8 +82,9 @@ func (n *Node) Info() *NodeInfo {
 func (n *Node) info() *NodeInfo {
 
 	return &NodeInfo{
-		ID:   n.id,
-		Addr: n.addr,
+		ID:       n.id,
+		Addr:     n.addr,
+		HttpPort: n.config.HttpPort,
 	}
 }
 
@@ -166,7 +153,7 @@ func (n *Node) schedule() error {
 				return err
 			}
 		}
-		n.log() //DEBUG
+
 	}
 
 }
@@ -189,7 +176,7 @@ func (n *Node) join(introducer *NodeInfo) error {
 	JOIN_INIT_FINGERS: //only used in retry
 		err := n.initFingerTable(introducer)
 		if err == context.DeadlineExceeded {
-			logger.Warn.Printf("[Join]initFingerTable: %v", err)
+			glog.Warningf("[Join]initFingerTable: %v", err)
 			goto JOIN_INIT_FINGERS //retry
 		} else if err != nil {
 			return err
@@ -202,7 +189,7 @@ func (n *Node) join(introducer *NodeInfo) error {
 	JOIN_UPDATE_OTHERS: //only used in retry
 		err = n.updateOthers()
 		if err == context.DeadlineExceeded {
-			logger.Warn.Printf("[Join]updateOthers: %v", err)
+			glog.Warningf("[Join]updateOthers: %v", err)
 			goto JOIN_UPDATE_OTHERS //retry
 		} else if err != nil {
 			return err
@@ -227,7 +214,7 @@ func (n *Node) join(introducer *NodeInfo) error {
 //initFingerTable init node local finger table
 func (n *Node) initFingerTable(info *NodeInfo) error {
 
-	logger.Info.Print("[initFingerTable]")
+	glog.Infoln("[initFingerTable]")
 
 	conn, err := info.dial()
 	if err != nil {
@@ -292,21 +279,21 @@ func (n *Node) updateOthers() error {
 	n.RLock()
 	defer n.RUnlock()
 	for i := range n.fingers {
-		logger.Debug.Printf("===================== %d", i)
-		logger.Debug.Printf("[updateOthers]findPredecessor %d:ID:% x", i, mod2(sub(n.id, pow2(i)), n.hashBitL))
+		glog.V(3).Infof("===================== %d", i)
+		glog.V(3).Infof("[updateOthers]findPredecessor %d:ID:% x", i, mod2(sub(n.id, pow2(i)), n.hashBitL))
 		p, err := n.findPredecessor(&NodeInfo{
 			ID: mod2(sub(n.id, pow2(i)), n.hashBitL),
 		})
-		logger.Debug.Printf("[updateOthers]findPredecessor:got:%v", p)
+		glog.V(3).Infof("[updateOthers]findPredecessor:got:%v", p)
 		if err != nil {
 			return err
 		}
 
-		logger.Info.Printf("[updateOthers]dial up %s", p.Addr)
+		glog.V(3).Infof("[updateOthers]dial up %s", p.Addr)
 
 		if isSameNode(p, n.info()) {
 
-			logger.Warn.Print("[updateOthers] local rpc")
+			glog.Warningf("[updateOthers] local rpc")
 			n.RUnlock()
 			err = n.updateFingerTable(n.info(), int32(i))
 			n.RLock()
@@ -336,10 +323,20 @@ func (n *Node) updateOthers() error {
 	return nil
 }
 
+//Metadata implements NOdeServer interface [rpc]
+func (n *Node) Metadata(ctx context.Context, _ *google_protobuf.Empty) (*NodeInfo, error) {
+
+	return &NodeInfo{
+		ID:       n.id,
+		Addr:     n.addr,
+		HttpPort: n.config.HttpPort,
+	}, nil
+}
+
 //UpdateFingerTable implements NOdeServer interface [rpc]
 func (n *Node) UpdateFingerTable(ctx context.Context, req *UpdateRequest) (*google_protobuf.Empty, error) {
 
-	logger.Info.Println("UpdateFingerTable")
+	glog.Infoln("UpdateFingerTable")
 
 	return &google_protobuf.Empty{}, n.updateFingerTable(req.Updater, req.I)
 }
@@ -364,18 +361,18 @@ func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 		n.Lock()
 		n.fingers[i].node = info
 		n.Unlock()
-		logger.Info.Printf("[updateFingerTable] %d-th finger updated: %v", i, info)
+		glog.Infof("[updateFingerTable] %d-th finger updated: %v", i, info)
 
 		n.RLock()
 		defer n.RUnlock()
 
 		if isSameNode(info, n.predecessor) {
-			logger.Warn.Print("[updateFingerTable] loopback update")
+			glog.Warningln("[updateFingerTable] loopback update")
 			return nil
 		}
 
 		if isSameNode(n.predecessor, n.info()) { //prevent dead loop
-			logger.Warn.Print("[updateFingerTable]: skip local rpc")
+			glog.Warningln("[updateFingerTable]: skip local rpc")
 			return nil
 		}
 
@@ -401,7 +398,7 @@ func (n *Node) updateFingerTable(info *NodeInfo, i int32) error {
 //OnNotify implements NodeServer interface [rpc]
 func (n *Node) OnNotify(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
 
-	logger.Info.Println("OnNOtify")
+	glog.Infoln("OnNOtify")
 	return &google_protobuf.Empty{}, n.onNotify(info)
 }
 
@@ -417,7 +414,7 @@ func onNotifyRPC(conn *grpc.ClientConn, info *NodeInfo) error {
 //	info might be n's predecessor [local invoke]
 func (n *Node) onNotify(info *NodeInfo) error {
 
-	logger.Info.Print("[onNotify]")
+	glog.Infoln("[onNotify]")
 
 	n.RLock()
 	// predecessor == nil or info.ID in (n.predecessor.ID , n.ID)
@@ -427,7 +424,7 @@ func (n *Node) onNotify(info *NodeInfo) error {
 		n.Lock()
 		n.predecessor = info
 		n.Unlock()
-		logger.Debug.Printf("[onNotify]: predecessor updated : %s", info)
+		glog.V(3).Infof("[onNotify]: predecessor updated : %s", info)
 		return nil
 	}
 	n.RUnlock()
@@ -438,7 +435,7 @@ func (n *Node) onNotify(info *NodeInfo) error {
 //FindSuccessor implements NodeServer interface [rpc]
 func (n *Node) FindSuccessor(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
 
-	logger.Info.Println("FindSuccessor")
+	glog.Infoln("FindSuccessor")
 	return n.findSuccessor(info)
 }
 
@@ -463,7 +460,7 @@ func (n *Node) findSuccessor(info *NodeInfo) (*NodeInfo, error) {
 //FindPredecessor implements NodeServer interface [rpc]
 func (n *Node) FindPredecessor(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
 
-	logger.Info.Println("FindPredecessor")
+	glog.Infoln("FindPredecessor")
 	return n.findPredecessor(info)
 }
 
@@ -477,7 +474,7 @@ func findPredecessorRPC(conn *grpc.ClientConn, info *NodeInfo) (*NodeInfo, error
 //findPredecessor [local invoke]
 func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 
-	logger.Info.Print("[findPredecessor]")
+	glog.Infoln("[findPredecessor]")
 
 	np := n.info() //node predecessor
 	n.RLock()
@@ -490,7 +487,7 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 	preN := np //store prev node
 	for {
 
-		logger.Debug.Printf("\ninfoID:% x \nnpID: % x \nsuccessorID: % x \n res:%v", info.ID, np.ID, successor.ID, info.isBetween(np.ID, successor.ID, intervRBounded))
+		glog.V(3).Infof("\ninfoID:% x \nnpID: % x \nsuccessorID: % x \n res:%v", info.ID, np.ID, successor.ID, info.isBetween(np.ID, successor.ID, intervRBounded))
 		if info.isBetween(np.ID, successor.ID, intervRBounded) {
 			break
 		}
@@ -525,12 +522,12 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 			return nil, err
 		}
 
-		logger.Debug.Printf("[findPredecessor]:np:%s", np)
-		logger.Debug.Printf("[findPredecessor]:successor:%s", successor)
+		glog.V(3).Infof("[findPredecessor]:np:%s", np)
+		glog.V(3).Infof("[findPredecessor]:successor:%s", successor)
 		if compare(np.ID, preN.ID) == equal ||
 			// compare(successor.ID, preN.ID) == equal ||
 			compare(np.ID, successor.ID) != less {
-			logger.Warn.Print("[findPredecessor]break dead loop")
+			glog.V(3).Infof("[findPredecessor]break dead loop")
 			break
 		}
 
@@ -542,7 +539,7 @@ func (n *Node) findPredecessor(info *NodeInfo) (*NodeInfo, error) {
 //ClosestPrecedingFinger implements NodeServer interface [rpc]
 func (n *Node) ClosestPrecedingFinger(ctx context.Context, info *NodeInfo) (*NodeInfo, error) {
 
-	logger.Info.Println("ClosestPrecedingFinger")
+	glog.Infoln("ClosestPrecedingFinger")
 	return n.closestPrecedingFinger(info)
 }
 
@@ -564,12 +561,12 @@ func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 		//n.fingers[i].node.ID in (n.ID,info.ID)
 		if n.fingers[i].node.isBetween(n.id, info.ID, intervUnbounded) {
 
-			logger.Debug.Printf("[closestPrecedingFinger] return %d-th finger %v", i, n.fingers[i].node)
+			glog.V(3).Infof("[closestPrecedingFinger] return %d-th finger %v", i, n.fingers[i].node)
 			return n.fingers[i].node, nil
 		}
 	}
 
-	logger.Debug.Print("[closestPrecedingFinger] return itself")
+	glog.V(3).Infoln("[closestPrecedingFinger] return itself")
 	return n.info(), nil
 }
 
@@ -577,7 +574,7 @@ func (n *Node) closestPrecedingFinger(info *NodeInfo) (*NodeInfo, error) {
 func (n *Node) Predecessor(ctx context.Context, _ *google_protobuf.Empty) (*NodeInfo, error) {
 
 	n.RLock()
-	logger.Info.Printf("[Predecessor]: %s", n.predecessor)
+	glog.Infof("[Predecessor]: %s", n.predecessor)
 	defer n.RUnlock()
 	return n.predecessor, nil
 
@@ -586,7 +583,7 @@ func (n *Node) Predecessor(ctx context.Context, _ *google_protobuf.Empty) (*Node
 //SetPredecessor implements NodeServer interface [rpc]
 func (n *Node) SetPredecessor(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
 
-	logger.Info.Printf("[SetPredecessor]: %s", info)
+	glog.Infof("[SetPredecessor]: %s", info)
 	n.Lock()
 	n.predecessor = info
 	n.Unlock()
@@ -598,7 +595,7 @@ func (n *Node) SetPredecessor(ctx context.Context, info *NodeInfo) (*google_prot
 func (n *Node) Successor(ctx context.Context, _ *google_protobuf.Empty) (*NodeInfo, error) {
 
 	n.RLock()
-	logger.Info.Printf("[Successor]: %s", n.fingers[0].node)
+	glog.Infof("[Successor]: %s", n.fingers[0].node)
 	defer n.RUnlock()
 	return n.fingers[0].node, nil
 
@@ -607,7 +604,7 @@ func (n *Node) Successor(ctx context.Context, _ *google_protobuf.Empty) (*NodeIn
 //SetSuccessor implements NodeServer interface [rpc]
 func (n *Node) SetSuccessor(ctx context.Context, info *NodeInfo) (*google_protobuf.Empty, error) {
 
-	logger.Info.Printf("[SetSuccessor]: %s", info)
+	glog.Infof("[SetSuccessor]: %s", info)
 	n.Lock()
 	n.fingers[0].node = info
 	n.Unlock()
@@ -618,13 +615,13 @@ func (n *Node) SetSuccessor(ctx context.Context, info *NodeInfo) (*google_protob
 //Stabilize verify n's immediate successor and tell the successor about it
 func (n *Node) Stabilize() error {
 
-	logger.Info.Print("Stabilize")
+	glog.Infoln("Stabilize")
 	n.RLock()
 	defer n.RUnlock()
 
 	if isSameNode(n.fingers[0].node, n.info()) {
 
-		logger.Warn.Print("[Stabilize]:try to notify itself")
+		glog.Warningln("[Stabilize]:try to notify itself")
 		return nil
 	}
 
@@ -658,7 +655,7 @@ func (n *Node) Stabilize() error {
 func (n *Node) FixFingers() error {
 
 	i := randInt(1, n.hashBitL-1) //skip successor
-	logger.Info.Printf("[FixFingers] fix %d-th", i)
+	glog.Infof("[FixFingers] fix %d-th", i)
 
 	successor, err := n.findSuccessor(&NodeInfo{ID: n.fingers[i].start})
 	if err != nil {
@@ -667,7 +664,7 @@ func (n *Node) FixFingers() error {
 
 	n.Lock()
 	n.fingers[i].node = successor
-	logger.Info.Printf("[FixFingers] updated %d-th : %v", i, n.fingers[i].node)
+	glog.Infof("[FixFingers] updated %d-th : %v", i, n.fingers[i].node)
 	n.Unlock()
 
 	return nil
